@@ -1,9 +1,9 @@
 # Parallel functions within one project: implementation study
 
-Status: the first per-function process runner is implemented. Native opt-in is
-currently limited to `emit-c`; analyses and other pipes retain serial execution.
-Source review baseline: `352c75e3c`. Neither the installed runtime nor the running
-analysis has been changed. The original implementation study follows below.
+Status: process workers support `emit-c` and `collect-cfg`. Global analyses and
+other pipes retain serial execution. See [collect-cfg measurements and cache
+semantics](collect-cfg-parallelism.md). The original implementation study follows
+below (source review baseline `352c75e3c`).
 
 ## Implemented interface
 
@@ -32,7 +32,9 @@ explicitly listed in `parallel_inputs`. The audited `emit-c` implementation
 accesses only `Input.getModule(ObjectID(Function.Entry()))`, so its `Modules`
 argument is sliced by batch. The full model is always shared unchanged. Global
 file inputs and unsliced containers are written once and hard-linked to worker
-directories. No persistent cache schema or semantic configuration ID changes.
+directories. Worker settings do not change semantic configuration IDs. A
+non-destructive SQLite migration v4 corrects the custom-dependency primary key
+so each output object retains its invalidation record.
 
 Native subprocesses directly execute `pypeline-run-pipe` with the pipebox's
 libraries; spawning a Python CLI for each native batch had substantial startup
@@ -89,7 +91,9 @@ construction; the native algorithm itself is unchanged.
 labelled synthetic CPU fixture. It records elapsed time, CPU time, sampled RSS,
 input preservation and exact output/dependency equality, and accepts `--repeat`.
 It deliberately forces thresholds off to expose both speedups and regressions.
-The validation suite passed 48 tests and 100 SQL subtests. Three focused core/threshold/CLI tests also passed after final compatibility cleanup. The test suite exercises subprocess failures, aborts, timeout reaping, serial
+The current validation suite passed 50 tests and 100 SQL subtests, including
+whole-model invalidation after unrelated model edits and non-destructive SQLite
+migration. The test suite exercises subprocess failures, aborts, timeout reaping, serial
 fallback, thresholds/core caps, sliced and shared inputs, CMake registration,
 CLI wiring, cache-hit reruns and invalidation after model edits. These checks
 establish equivalence to serial emission, not behavioral equivalence of generated

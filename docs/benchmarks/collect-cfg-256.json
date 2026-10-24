@@ -1,0 +1,104 @@
+{
+  "scope": "native collect-cfg, cached llvm-root, complete unmodified source model",
+  "batch_size": 0,
+  "runs": [
+    {
+      "repeat": 0,
+      "workers": 0,
+      "seconds": 68.9,
+      "cpu_seconds": 65.423,
+      "peak_tree_rss_bytes": 3148967936,
+      "functions": 256,
+      "output_sha256": "047d20f23c26976bded389b17c670662f3afc4298d55a74361386a78d9d82c48",
+      "outputs_and_dependencies_equal": true,
+      "outputs_equal": true,
+      "dependencies_cover_serial": true,
+      "additional_dependencies": 0,
+      "missing_native_path_dependencies": 0,
+      "whole_model_invalidation": false,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 256,
+      "inputs_unchanged": false
+    },
+    {
+      "repeat": 0,
+      "workers": 2,
+      "seconds": 67.474,
+      "cpu_seconds": 118.683,
+      "peak_tree_rss_bytes": 7517892608,
+      "functions": 256,
+      "output_sha256": "047d20f23c26976bded389b17c670662f3afc4298d55a74361386a78d9d82c48",
+      "outputs_and_dependencies_equal": false,
+      "outputs_equal": true,
+      "dependencies_cover_serial": false,
+      "additional_dependencies": 61,
+      "missing_native_path_dependencies": 4,
+      "whole_model_invalidation": true,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 128,
+      "inputs_unchanged": true,
+      "speedup_vs_in_process": 1.021
+    },
+    {
+      "repeat": 0,
+      "workers": 4,
+      "seconds": 66.225,
+      "cpu_seconds": 227.13,
+      "peak_tree_rss_bytes": 11859255296,
+      "functions": 256,
+      "output_sha256": "047d20f23c26976bded389b17c670662f3afc4298d55a74361386a78d9d82c48",
+      "outputs_and_dependencies_equal": false,
+      "outputs_equal": true,
+      "dependencies_cover_serial": false,
+      "additional_dependencies": 189,
+      "missing_native_path_dependencies": 68,
+      "whole_model_invalidation": true,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 64,
+      "inputs_unchanged": true,
+      "speedup_vs_in_process": 1.04
+    },
+    {
+      "repeat": 0,
+      "workers": 8,
+      "seconds": 69.761,
+      "cpu_seconds": 466.181,
+      "peak_tree_rss_bytes": 20545388544,
+      "functions": 256,
+      "output_sha256": "047d20f23c26976bded389b17c670662f3afc4298d55a74361386a78d9d82c48",
+      "outputs_and_dependencies_equal": false,
+      "outputs_equal": true,
+      "dependencies_cover_serial": false,
+      "additional_dependencies": 261,
+      "missing_native_path_dependencies": 64,
+      "whole_model_invalidation": true,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 32,
+      "inputs_unchanged": true,
+      "speedup_vs_in_process": 0.988
+    }
+  ],
+  "runner_commit": "8c316e1b2bbbefb7b84377c839cb74afbc29c1b9",
+  "model_sha256": "197de3bd9d1e5560e3cabaaee08d72c8f70139afc91bc49d928a114baf69d2e6",
+  "input_sha256": "fb8c4375877480e7badd6b5d84fcb0d2c6a9e9bea6d189191694debf7381052e",
+  "native_revision": "ba8cdb0278084da07b2655f19d1e5f1ce2ebbbdf",
+  "summary": {
+    "0": {
+      "median_seconds": 68.9,
+      "speedup_vs_in_process": 1.0
+    },
+    "8": {
+      "median_seconds": 69.761,
+      "speedup_vs_in_process": 0.9876578604091113
+    },
+    "2": {
+      "median_seconds": 67.474,
+      "speedup_vs_in_process": 1.0211340664552273
+    },
+    "4": {
+      "median_seconds": 66.225,
+      "speedup_vs_in_process": 1.0403926009815025
+    }
+  },
+  "source_note": "Early measurement of the collect-cfg changes before commit f8a5208e5; runner_commit is the then-current base, not the implemented feature revision."
+}
