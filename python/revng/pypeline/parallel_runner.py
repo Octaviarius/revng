@@ -149,7 +149,11 @@ class ParallelRunnerContext(RunnerContext):
         started = time.monotonic()
         output_index = self._output_index(pipe)
         count = len(outgoing[output_index]) if output_index is not None else 0
-        workers = min(self.workers, max(1, count // self.min_functions_per_worker))
+        workers = min(
+            self.workers,
+            max(1, count // self.min_functions_per_worker),
+            max(1, math.ceil(count / self.batch_size)),
+        )
         if output_index is None or not count or count < self.min_functions:
             return self.serial_context.run_pipe(
                 pipe, file_provider, model, containers, incoming, outgoing, configuration

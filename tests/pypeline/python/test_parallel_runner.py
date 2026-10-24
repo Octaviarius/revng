@@ -226,6 +226,17 @@ def test_small_work_stays_in_process(tmp_path):
     )
     context.run_pipe(**args)
     assert not list((tmp_path / "per-worker").iterdir())
+    args = arguments(7)
+    context = ParallelRunnerContext(
+        tmp_path / "one-batch",
+        forbidden,
+        workers=64,
+        min_functions=0,
+        min_functions_per_worker=1,
+        batch_size=128,
+    )
+    context.run_pipe(**args)
+    assert not list((tmp_path / "one-batch").iterdir())
 
 
 def test_core_default_and_cap(tmp_path, monkeypatch):
