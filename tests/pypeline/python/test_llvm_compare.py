@@ -60,3 +60,10 @@ def test_side_effects_and_constants_are_not_ignored(llvm, passes):
     reordered = source.replace("call void @a() call void @b()", "call void @b() call void @a()")
     assert text(assemble(source)) != text(assemble(reordered))
     assert text(assemble(source)) != text(assemble(source.replace("ret i32 7", "ret i32 8")))
+
+
+def test_function_declaration_order_is_not_semantic(llvm):
+    _, text, assemble = llvm
+    first = "declare void @z()\ndefine i32 @f() { call void @z() ret i32 7 }\n"
+    second = "define i32 @f() { call void @z() ret i32 7 }\ndeclare void @z()\n"
+    assert text(assemble(first)) == text(assemble(second))

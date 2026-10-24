@@ -61,6 +61,8 @@ class Pipe(ABC):
     parallel_output: str | None = None
     parallel_inputs: tuple[str, ...] = ()
     parallel_in_place: bool = False
+    parallel_min_batch_size: int = 1
+    parallel_min_workers: int = 1
     parallel_configurations: tuple[tuple[str, ...], ...] = ()
     parallel_invalidate_on_model_change: bool = False
 

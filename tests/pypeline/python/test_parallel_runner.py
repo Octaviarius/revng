@@ -421,6 +421,10 @@ def test_native_opt_in_is_narrow():
     configure_native_parallel_pipes(pipes)
     assert pipes["isolate"].parallel_invalidate_on_model_change
     assert pipes["clifter"].parallel_inputs == ("Input",)
+    assert not hasattr(pipes["pure-llvm-passes-pipe"], "parallel_output")
+    assert pipes["clifter"].parallel_min_batch_size == 1024
+    assert pipes["clifter"].parallel_min_workers == 4
+    configure_native_parallel_pipes(pipes, experimental_llvm=True)
     assert pipes["pure-llvm-passes-pipe"].parallel_in_place
     assert pipes["pure-llvm-passes-pipe"].parallel_configurations == (OPTIMIZATION_PASSES,)
     assert not hasattr(pipes["lift"], "parallel_output")
@@ -491,3 +495,22 @@ branches:
         value.startswith(b"seed-changed-") and value.count(b"-changed-") == 1
         for value in outputs[2].values()
     )
+
+
+def test_pipe_specific_batch_and_worker_thresholds(tmp_path):
+    args = arguments(7)
+    args["pipe"].parallel_min_batch_size = 4
+    args["pipe"].parallel_min_workers = 3
+
+    def forbidden(command):
+        raise AssertionError("Unprofitable worker count was used")
+
+    context = runner(tmp_path / "profile", forbidden, workers=4, batch_size=1)
+    context.run_pipe(**args)
+    assert not list((tmp_path / "profile").iterdir())
+    args = arguments(7)
+    args["pipe"].parallel_min_batch_size = 4
+    context = runner(tmp_path / "batches", command_hook, workers=4, batch_size=1)
+    context.run_pipe(**args)
+    assert context.last_metrics["batches"] == 2
+    assert context.last_metrics["workers"] == 2

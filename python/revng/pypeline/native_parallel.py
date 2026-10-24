@@ -33,14 +33,16 @@ OPTIMIZATION_PASSES = (
 )
 
 
-def configure_native_parallel_pipes(pipes):
+def configure_native_parallel_pipes(pipes, *, experimental_llvm=False):
+    """Enable measured candidates; LLVM transforms remain experimental after a slowdown."""
     settings = {
         "emit-c": ("Output", ("Modules",), False, False),
         "collect-cfg": ("Output", (), False, True),
         "isolate": ("Output", (), False, True),
         "clifter": ("Output", ("Input",), False, True),
-        "pure-llvm-passes-pipe": ("Module", (), True, False),
     }
+    if experimental_llvm:
+        settings["pure-llvm-passes-pipe"] = ("Module", (), True, False)
     for name, (output, inputs, in_place, conservative) in settings.items():
         if name not in pipes:
             continue
@@ -52,3 +54,10 @@ def configure_native_parallel_pipes(pipes):
         pipe.parallel_configurations = ()
         if name == "pure-llvm-passes-pipe":
             pipe.parallel_configurations = (OPTIMIZATION_PASSES,)
+
+    if "isolate" in pipes:
+        pipes["isolate"].parallel_min_batch_size = 1024
+        pipes["isolate"].parallel_min_workers = 2
+    if "clifter" in pipes:
+        pipes["clifter"].parallel_min_batch_size = 1024
+        pipes["clifter"].parallel_min_workers = 4

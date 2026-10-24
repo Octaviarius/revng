@@ -35,6 +35,42 @@ class LLVMText:
             (core, "LLVMDisposeMessage", [c.c_void_p], None),
             (core, "LLVMDisposeModule", [c.c_void_p], None),
         ]
+        import hashlib
+        import os
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        source = Path(__file__).with_name("llvm_sort.cpp")
+        key = hashlib.sha256(source.read_bytes() + str(directory).encode()).hexdigest()[:20]
+        cache = Path(tempfile.gettempdir()) / ("revng-llvm-compare-" + key)
+        cache.mkdir(exist_ok=True)
+        library = cache / "sort.so"
+        if not library.exists():
+            temporary = cache / f"sort-{os.getpid()}.so"
+            subprocess.run(
+                [
+                    str(directory.parent / "bin/clang++"),
+                    "-shared",
+                    "-fPIC",
+                    "-O2",
+                    "-std=c++17",
+                    "-fno-exceptions",
+                    "-fno-rtti",
+                    "-I" + str(directory.parent / "include"),
+                    str(source),
+                    str(directory / "libLLVMCore.so.16"),
+                    "-Wl,-rpath," + str(directory),
+                    "-o",
+                    str(temporary),
+                ],
+                check=True,
+            )
+            temporary.replace(library)
+        self.sort_library = c.CDLL(str(library))
+        self.sort_module = self.sort_library.revngSortLLVMModule
+        self.sort_module.argtypes = [c.c_void_p]
+        self.sort_module.restype = None
         for library, name, arguments, result in specifications:
             function = getattr(library, name)
             function.argtypes = arguments
@@ -50,6 +86,7 @@ class LLVMText:
         try:
             if self.reader.LLVMParseBitcodeInContext2(context, buffer, c.byref(module)):
                 raise ValueError("LLVM could not parse benchmark output")
+            self.sort_module(module)
             options = self.passes.LLVMCreatePassBuilderOptions()
             try:
                 error = self.passes.LLVMRunPasses(module, self.canonical_passes, None, options)

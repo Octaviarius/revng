@@ -49,8 +49,11 @@ def main():
     parser.add_argument("--input-savepoint", type=int)
     parser.add_argument("--static-configuration", type=Path)
     parser.add_argument("--prepare-pipeline", type=Path)
+    parser.add_argument(
+        "--resume", action="store_true", help="Reuse an already measured serial reference"
+    )
     args = parser.parse_args()
-    args.output.mkdir(parents=True, exist_ok=False)
+    args.output.mkdir(parents=True, exist_ok=args.resume)
     metadata = {
         "runner_commit": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[3], text=True
@@ -286,6 +289,7 @@ def main():
 
         output_index = 2
         scope = "synthetic CPU-bound per-function fixture, not native decompilation"
+    from revng.pypeline.container import ContainerFormat
     from revng.pypeline.parallel_runner import ParallelRunnerContext
     from revng.pypeline.runner_context import RunnerContext
     from revng.pypeline.task.pipe import WHOLE_MODEL_INVALIDATION
@@ -336,9 +340,54 @@ def main():
 
     report = {"scope": scope, "batch_size": args.batch_size, "runs": [], **metadata}
     expected = None
+    if args.resume:
+        saved = json.loads((args.output / "report.json").read_text())
+        if len(saved["runs"]) != 1 or saved["runs"][0]["workers"] != 0:
+            raise ValueError("Resume requires exactly one completed serial reference")
+        for field in (
+            "model_sha256",
+            "native_revision",
+            "input_savepoints",
+            "static_configuration",
+        ):
+            if saved.get(field) != metadata.get(field):
+                raise ValueError(f"Resume input mismatch: {field}")
+        if saved["runs"][0]["functions"] != len(requested):
+            raise ValueError("Resume function count mismatch")
+        reference = output_type.from_file(args.output / "serial-output.tar")
+        if set(reference.objects()) != set(requested):
+            raise ValueError("Resume selected function IDs mismatch")
+        reference_data = args.output / "reference-dependencies.json"
+        if reference_data.exists():
+            reference_dependencies = json.loads(reference_data.read_text())
+        else:
+            mismatch = json.loads((args.output / "mismatch.json").read_text())
+            if not mismatch["custom_equal"]:
+                raise ValueError("Cannot recover custom dependency reference")
+            reference_dependencies = [mismatch["expected_dependencies"], [[] for _ in signature]]
+        expected = (
+            output_digest(reference),
+            (
+                [[tuple(item) for item in entries] for entries in reference_dependencies[0]],
+                [
+                    [(obj, bytes.fromhex(data)) for obj, data in entries]
+                    for entries in reference_dependencies[1]
+                ],
+            ),
+        )
+        baseline = saved["runs"][0]
+        baseline.update(
+            output_sha256=expected[0], comparison="normalized LLVM text with native LLVM verifier"
+        )
+        report["runs"].append(baseline)
+        report["serial_reference_reused"] = True
+        report["serial_reference_original_commit"] = saved.get("runner_commit")
+        print("Reusing previously measured serial reference", flush=True)
     for repeat, workers in (
         (repeat, workers) for repeat in range(args.repeat) for workers in [0, *args.workers]
     ):
+        if args.resume and repeat == 0 and workers == 0:
+            continue
         call = arguments()
         batch_size = args.batch_size or math.ceil(
             len(call["outgoing"][output_index]) / max(1, workers)
@@ -348,7 +397,9 @@ def main():
             RunnerContext()
             if workers == 0
             else ParallelRunnerContext(
-                args.output / f"repeat-{repeat}-workers-{workers}",
+                args.output
+                / (f"attempt-{time.time_ns()}" if args.resume else ".")
+                / f"repeat-{repeat}-workers-{workers}",
                 command_hook,
                 workers,
                 batch_size,
@@ -389,7 +440,14 @@ def main():
         actual = (output_digest(call["containers"][output_index]), normalized(result))
         if expected is None:
             expected = actual
-            from revng.pypeline.container import ContainerFormat
+            (args.output / "reference-dependencies.json").write_text(
+                json.dumps(
+                    [
+                        actual[1][0],
+                        [[(obj, data.hex()) for obj, data in entries] for entries in actual[1][1]],
+                    ]
+                )
+            )
 
             call["containers"][output_index].to_file(
                 args.output / "serial-output.tar", container_format=ContainerFormat.TAR
