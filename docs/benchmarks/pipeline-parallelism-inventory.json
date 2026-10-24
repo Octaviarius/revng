@@ -1,0 +1,1014 @@
+{
+  "source_commit": "25d280e3181f64bd91a8b722630666ae732fdaf7",
+  "native_revision": "ba8cdb0278084da07b2655f19d1e5f1ce2ebbbdf",
+  "native_pipes": [
+    {
+      "pipe": "attach-debug-info",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "CFG",
+          "access": "READ",
+          "container": "CFGMap",
+          "rank": 1
+        },
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "isolate",
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "clifter",
+      "category": "separate-output function candidate",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "CliftFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "clift-functions"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "collect-cfg",
+      "category": "enabled",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "CFGMap",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "collect-cfg"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "compile-root-module",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "ObjectFileContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "recompile",
+        "recompile-isolated"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "emit-c",
+      "category": "enabled",
+      "arguments": [
+        {
+          "name": "Modules",
+          "access": "READ",
+          "container": "CliftFunctionContainer",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "PTMLCFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "single-file",
+        "tagless-single-file"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "emit-c-as-directory",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "DecompiledFunctions",
+          "access": "READ",
+          "container": "PTMLCContainer",
+          "rank": 0
+        },
+        {
+          "name": "TypesAndGlobals",
+          "access": "READ",
+          "container": "PTMLCContainer",
+          "rank": 0
+        },
+        {
+          "name": "Helpers",
+          "access": "READ",
+          "container": "PTMLCContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "RecompilableArchiveContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "tagless-single-file"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "emit-c-as-single-file",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "DecompiledFunctions",
+          "access": "READ",
+          "container": "PTMLCFunctionContainer",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "PTMLCContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "single-file",
+        "tagless-single-file"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "emit-function-pointers",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "emit-helper-header",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "CliftFunctionContainer",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "PTMLCContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "helpers",
+        "tagless-single-file"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "emit-segment-references",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "lift"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "emit-single-type-definition",
+      "category": "per-type candidate",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "CliftModuleContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "CTypeContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "emit-single-type-definition"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "emit-string-constants",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Binaries",
+          "access": "READ",
+          "container": "BinariesContainer",
+          "rank": 0
+        },
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "cleanup-ir"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "emit-type-and-global-header",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "CliftModuleContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "PTMLCContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "emit-type-and-global-header",
+        "tagless-single-file"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "enforce-abi",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "CFG",
+          "access": "READ",
+          "container": "CFGMap",
+          "rank": 1
+        },
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "fix-pointer-size",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "clift-functions"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "hex-dump",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Binary",
+          "access": "READ",
+          "container": "BinariesContainer",
+          "rank": 0
+        },
+        {
+          "name": "Module",
+          "access": "READ",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        },
+        {
+          "name": "CFG",
+          "access": "READ",
+          "container": "CFGMap",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "HexDumpContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "hexdump"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "import-descriptive-function-info",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Modules",
+          "access": "READ_WRITE",
+          "container": "CliftFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "clift-functions"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "import-descriptive-info",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "TypesAndGlobals",
+          "access": "READ_WRITE",
+          "container": "CliftModuleContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "emit-single-type-definition",
+        "emit-type-and-global-header",
+        "tagless-single-file"
+      ],
+      "pipeline_occurrences": 3
+    },
+    {
+      "pipe": "import-function-data-model",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Modules",
+          "access": "READ_WRITE",
+          "container": "CliftFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "clift-functions"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "import-function-declarations",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "CliftModuleContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "import-types",
+        "tagless-single-file"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "import-segment-declarations",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "CliftModuleContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "emit-type-and-global-header",
+        "tagless-single-file"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "import-types",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "CliftModuleContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "import-types",
+        "tagless-single-file"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "inject-stack-size-probes-at-callsites",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "inline-always-inline-functions",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "isolate"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "invoke-isolated-functions",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "RootModule",
+          "access": "READ",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        },
+        {
+          "name": "FunctionModules",
+          "access": "READ",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "recompile-isolated"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "isolate",
+      "category": "separate-output function candidate",
+      "arguments": [
+        {
+          "name": "CFG",
+          "access": "READ",
+          "container": "CFGMap",
+          "rank": 1
+        },
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "isolate"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "lift",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "BinariesContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "lift"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "link-for-translation",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Binaries",
+          "access": "READ",
+          "container": "BinariesContainer",
+          "rank": 0
+        },
+        {
+          "name": "ObjectFile",
+          "access": "READ",
+          "container": "ObjectFileContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "TranslatedContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "recompile",
+        "recompile-isolated"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "link-support",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "recompile",
+        "recompile-isolated"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "merge-llvm-modules",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "cleanup-ir"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "process-assembly",
+      "category": "separate-output function candidate",
+      "arguments": [
+        {
+          "name": "Binaries",
+          "access": "READ",
+          "container": "BinariesContainer",
+          "rank": 0
+        },
+        {
+          "name": "CFG",
+          "access": "READ",
+          "container": "CFGMap",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "AssemblyInternalContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "process-assembly"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "process-call-graph",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "CFGMap",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "CrossRelationsContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "process-call-graph"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "promote-csvs",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 2
+    },
+    {
+      "pipe": "promote-init-csv-to-undef",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "promote-stack-pointer",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "pure-llvm-passes-pipe",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "clift-functions",
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 10
+    },
+    {
+      "pipe": "pure-llvm-passes-root-pipe",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMRootContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "cleanup-ir",
+        "lift",
+        "recompile",
+        "recompile-isolated"
+      ],
+      "pipeline_occurrences": 4
+    },
+    {
+      "pipe": "pure-mlir-passes-pipe",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "CliftFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "clift-functions"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "remove-lifting-artifacts",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "segregate-stack-accesses",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "simplify-switch",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Binaries",
+          "access": "READ",
+          "container": "BinariesContainer",
+          "rank": 0
+        },
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "segregate-stack-accesses"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "switch-to-statements",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Module",
+          "access": "READ_WRITE",
+          "container": "LLVMFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "clift-functions"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "verify-against-model",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "TypesAndGlobals",
+          "access": "READ_WRITE",
+          "container": "CliftModuleContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [],
+      "pipeline_occurrences": 0
+    },
+    {
+      "pipe": "verify-function-against-model",
+      "category": "ReadWrite function candidate",
+      "arguments": [
+        {
+          "name": "Modules",
+          "access": "READ_WRITE",
+          "container": "CliftFunctionContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "clift-functions"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "yield-assembly",
+      "category": "separate-output function candidate",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "AssemblyInternalContainer",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "AssemblyContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "disassemble"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "yield-call-graph",
+      "category": "global/aggregate; requires algorithm-specific work",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "CrossRelationsContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "CallGraphContainer",
+          "rank": 0
+        }
+      ],
+      "branches": [
+        "yield-call-graph"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "yield-call-graph-slice",
+      "category": "separate-output function candidate",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "CrossRelationsContainer",
+          "rank": 0
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "CallGraphSliceContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "yield-call-graph-slice"
+      ],
+      "pipeline_occurrences": 1
+    },
+    {
+      "pipe": "yield-cfg",
+      "category": "separate-output function candidate",
+      "arguments": [
+        {
+          "name": "Input",
+          "access": "READ",
+          "container": "AssemblyInternalContainer",
+          "rank": 1
+        },
+        {
+          "name": "Output",
+          "access": "WRITE",
+          "container": "FunctionControlFlowContainer",
+          "rank": 1
+        }
+      ],
+      "branches": [
+        "yield-cfg"
+      ],
+      "pipeline_occurrences": 1
+    }
+  ],
+  "python_pipeline_pipes": [
+    "import-files"
+  ],
+  "category_counts": {
+    "ReadWrite function candidate": 19,
+    "separate-output function candidate": 6,
+    "enabled": 2,
+    "global/aggregate; requires algorithm-specific work": 20,
+    "per-type candidate": 1
+  },
+  "main_chain": [
+    "lift",
+    "collect-cfg",
+    "isolate",
+    "segregate-stack-accesses",
+    "clift-functions",
+    "tagless-single-file"
+  ],
+  "main_pipe_occurrences": 45,
+  "main_unique_pipes": 34,
+  "main_categories": {
+    "Python coordinator pipe": 1,
+    "global/aggregate; requires algorithm-specific work": 11,
+    "enabled": 2,
+    "separate-output function candidate": 2,
+    "ReadWrite function candidate": 29
+  }
+}
