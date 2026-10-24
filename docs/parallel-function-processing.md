@@ -1,7 +1,9 @@
 # Parallel functions within one project: implementation study
 
-Status: process workers support `emit-c` and `collect-cfg`. Global analyses and
-other pipes retain serial execution. See [collect-cfg measurements and cache
+Status: process workers support `emit-c`, `collect-cfg`, `isolate` and `clifter`.
+ReadWrite function batches are implemented; the measured LLVM optimization list
+remains experimental because it lost time. See [additional stages](parallel-more-stages.md).
+Global analyses and unsupported pipes retain serial execution. See [collect-cfg measurements and cache
 semantics](collect-cfg-parallelism.md). The original implementation study follows
 below (source review baseline `352c75e3c`).
 
@@ -26,8 +28,9 @@ defaults to 256. `--parallel-timeout` limits each subprocess, including startup,
 to 600 seconds by default. The caller must still choose a memory-appropriate
 `--cores` limit for large models.
 
-For Python pipeboxes, `Pipe.parallel_output` declares the single function-kind
-write-only argument. All readable inputs are broadcast unless their names are
+For Python pipeboxes, `Pipe.parallel_output` declares the single writable
+function-kind argument. `parallel_in_place=True` explicitly opts a ReadWrite
+argument into sliced input and transactional replacement. All readable inputs are broadcast unless their names are
 explicitly listed in `parallel_inputs`. The audited `emit-c` implementation
 accesses only `Input.getModule(ObjectID(Function.Entry()))`, so its `Modules`
 argument is sliced by batch. The full model is always shared unchanged. Global

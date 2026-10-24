@@ -1,0 +1,106 @@
+{
+  "scope": "native pure-llvm-passes-pipe, cached inputs, complete unmodified source model",
+  "batch_size": 256,
+  "runs": [
+    {
+      "repeat": 0,
+      "workers": 0,
+      "seconds": 3.657,
+      "cpu_seconds": 3.438,
+      "peak_tree_rss_bytes": 749420544,
+      "functions": 1024,
+      "output_sha256": "84e9a289106a5faa6ff956ef701e6fe114ef7c489647d867075fa6c0ddbb9a72",
+      "raw_output_sha256": "1fc20761b7497b6fd1141cc8de137cdecf7880c2a1619d82196b23d1e4f75fe1",
+      "comparison": "normalized LLVM text with native LLVM verifier",
+      "outputs_and_dependencies_equal": true,
+      "outputs_equal": true,
+      "dependencies_cover_serial": true,
+      "additional_dependencies": 0,
+      "missing_native_path_dependencies": 0,
+      "whole_model_invalidation": false,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 256,
+      "inputs_unchanged": true
+    },
+    {
+      "repeat": 0,
+      "workers": 2,
+      "seconds": 8.271,
+      "cpu_seconds": 11.333,
+      "peak_tree_rss_bytes": 1647235072,
+      "functions": 1024,
+      "output_sha256": "84e9a289106a5faa6ff956ef701e6fe114ef7c489647d867075fa6c0ddbb9a72",
+      "raw_output_sha256": "664b5352a4ff08e12cf4763917a92cab291e2819d0acc03070820e8b22e93b26",
+      "comparison": "normalized LLVM text with native LLVM verifier",
+      "outputs_and_dependencies_equal": true,
+      "outputs_equal": true,
+      "dependencies_cover_serial": true,
+      "additional_dependencies": 0,
+      "missing_native_path_dependencies": 0,
+      "whole_model_invalidation": false,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 256,
+      "inputs_unchanged": true,
+      "speedup_vs_in_process": 0.442
+    },
+    {
+      "repeat": 0,
+      "workers": 4,
+      "seconds": 6.448,
+      "cpu_seconds": 11.54,
+      "peak_tree_rss_bytes": 2416730112,
+      "functions": 1024,
+      "output_sha256": "84e9a289106a5faa6ff956ef701e6fe114ef7c489647d867075fa6c0ddbb9a72",
+      "raw_output_sha256": "b8697b9c3cdeb5b0419220c23b3dba68528bb8dea9921b1e6dc73642d3acb1f2",
+      "comparison": "normalized LLVM text with native LLVM verifier",
+      "outputs_and_dependencies_equal": true,
+      "outputs_equal": true,
+      "dependencies_cover_serial": true,
+      "additional_dependencies": 0,
+      "missing_native_path_dependencies": 0,
+      "whole_model_invalidation": false,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 256,
+      "inputs_unchanged": true,
+      "speedup_vs_in_process": 0.567
+    }
+  ],
+  "runner_commit": "613cea8e9e9c430860df9f350df541607ac7a798",
+  "preparation": [
+    "enforce-abi",
+    "pure-llvm-passes-pipe",
+    "promote-csvs",
+    "pure-llvm-passes-pipe",
+    "attach-debug-info",
+    "promote-csvs",
+    "pure-llvm-passes-pipe",
+    "pure-llvm-passes-pipe",
+    "remove-lifting-artifacts",
+    "promote-init-csv-to-undef",
+    "inject-stack-size-probes-at-callsites",
+    "promote-stack-pointer"
+  ],
+  "preparation_seconds": 416.4795802839999,
+  "model_sha256": "838c3c6d30e87fe27431607af4ea41c57b5ec06f947c04a7a0313df102a0be48",
+  "native_revision": "ba8cdb0278084da07b2655f19d1e5f1ce2ebbbdf",
+  "input_savepoints": {
+    "llvm-functions": 4
+  },
+  "static_configuration": "passes:\n- dce\n- remove-extractvalues\n- simplify-cfg-with-hoist-and-sink\n- dse\n- instcombine\n- remove-extractvalues\n- sroa\n- instsimplify\n- jump-threading\n- licm\n- unreachableblockelim\n- instcombine\n- remove-extractvalues\n- early-cse\n- simplify-cfg-with-hoist-and-sink\n- early-type-shrinking\n- type-shrinking\n- early-cse\n- instsimplify\n- gvn\n- instsimplify\n- dse\n- dce\n- drop-opaque-return-address\n- globaldce\n",
+  "llvm_comparison_passes": "strip-nondebug,function(instcombine,reassociate,gvn)",
+  "summary": {
+    "0": {
+      "median_seconds": 3.657,
+      "speedup_vs_in_process": 1.0
+    },
+    "2": {
+      "median_seconds": 8.271,
+      "speedup_vs_in_process": 0.4421472615161407
+    },
+    "4": {
+      "median_seconds": 6.448,
+      "speedup_vs_in_process": 0.567152605459057
+    }
+  },
+  "source_note": "Measurements used the feature working tree during implementation; runner_commit records the checked-out base/commit, not a clean-tree guarantee. Later production thresholds select only profitable measured modes. The serial isolate reference was reused from its original completed measurement."
+}

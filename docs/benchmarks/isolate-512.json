@@ -1,0 +1,94 @@
+{
+  "scope": "native isolate, cached inputs, complete unmodified source model",
+  "batch_size": 0,
+  "runs": [
+    {
+      "repeat": 0,
+      "workers": 0,
+      "seconds": 143.807,
+      "cpu_seconds": 136.875,
+      "peak_tree_rss_bytes": 3588734976,
+      "functions": 512,
+      "output_sha256": "3115ba2760aeb20bffce78dd5bbde5d00a6fa98b9db860a50e0f80eaf3ffed7c",
+      "raw_output_sha256": "f89d0e4315512fd3bc67ce7897f550ed3b66477780cb118b553d793f75c25b70",
+      "comparison": "normalized LLVM text with native LLVM verifier",
+      "outputs_and_dependencies_equal": true,
+      "outputs_equal": true,
+      "dependencies_cover_serial": true,
+      "additional_dependencies": 0,
+      "missing_native_path_dependencies": 0,
+      "whole_model_invalidation": false,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 512,
+      "inputs_unchanged": true
+    },
+    {
+      "repeat": 0,
+      "workers": 2,
+      "seconds": 128.425,
+      "cpu_seconds": 232.419,
+      "peak_tree_rss_bytes": 8424165376,
+      "functions": 512,
+      "output_sha256": "3115ba2760aeb20bffce78dd5bbde5d00a6fa98b9db860a50e0f80eaf3ffed7c",
+      "raw_output_sha256": "6e735686e265252ac2fa5fcc364b7f53876da7c2c64465049c9cb44a15dd0261",
+      "comparison": "normalized LLVM text with native LLVM verifier",
+      "outputs_and_dependencies_equal": false,
+      "outputs_equal": true,
+      "dependencies_cover_serial": false,
+      "additional_dependencies": 5,
+      "missing_native_path_dependencies": 6,
+      "whole_model_invalidation": true,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 256,
+      "inputs_unchanged": true,
+      "speedup_vs_in_process": 1.12
+    },
+    {
+      "repeat": 0,
+      "workers": 4,
+      "seconds": 154.172,
+      "cpu_seconds": 550.547,
+      "peak_tree_rss_bytes": 14797717504,
+      "functions": 512,
+      "output_sha256": "3115ba2760aeb20bffce78dd5bbde5d00a6fa98b9db860a50e0f80eaf3ffed7c",
+      "raw_output_sha256": "4d42d224d82353946b4bb1f33934cca557be7406a8d4d87fabc4026b691606ae",
+      "comparison": "normalized LLVM text with native LLVM verifier",
+      "outputs_and_dependencies_equal": false,
+      "outputs_equal": true,
+      "dependencies_cover_serial": false,
+      "additional_dependencies": 5,
+      "missing_native_path_dependencies": 6,
+      "whole_model_invalidation": true,
+      "effective_invalidation_covers_serial": true,
+      "batch_size": 128,
+      "inputs_unchanged": true,
+      "speedup_vs_in_process": 0.933
+    }
+  ],
+  "runner_commit": "a8925156aa4dc3afad6ced6d623ad6c02dc50007",
+  "model_sha256": "197de3bd9d1e5560e3cabaaee08d72c8f70139afc91bc49d928a114baf69d2e6",
+  "native_revision": "ba8cdb0278084da07b2655f19d1e5f1ce2ebbbdf",
+  "input_savepoints": {
+    "cfg-map": 3,
+    "llvm-root": 1
+  },
+  "static_configuration": "",
+  "llvm_comparison_passes": "strip-nondebug",
+  "serial_reference_reused": true,
+  "serial_reference_original_commit": "613cea8e9e9c430860df9f350df541607ac7a798",
+  "summary": {
+    "0": {
+      "median_seconds": 143.807,
+      "speedup_vs_in_process": 1.0
+    },
+    "2": {
+      "median_seconds": 128.425,
+      "speedup_vs_in_process": 1.1197741872688338
+    },
+    "4": {
+      "median_seconds": 154.172,
+      "speedup_vs_in_process": 0.932769893365851
+    }
+  },
+  "source_note": "Measurements used the feature working tree during implementation; runner_commit records the checked-out base/commit, not a clean-tree guarantee. Later production thresholds select only profitable measured modes. The serial isolate reference was reused from its original completed measurement."
+}
