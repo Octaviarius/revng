@@ -5,7 +5,9 @@
 import argparse
 import hashlib
 import json
+import math
 import resource
+import random
 import sqlite3
 import statistics
 import subprocess
@@ -37,6 +39,7 @@ def main():
     parser.add_argument("--rounds", type=int, default=1000000)
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--native-overlay", type=Path)
+    parser.add_argument("--pipe", choices=["emit-c", "collect-cfg"], default="emit-c")
     parser.add_argument("--model", type=Path)
     parser.add_argument("--cache", type=Path)
     args = parser.parse_args()
@@ -63,25 +66,27 @@ def main():
                 return {}
 
         initialize_pypeline()
-        pipe_type = pipebox._native_pipes["emit-c"]
+        pipe_type = pipebox._native_pipes[args.pipe]
         pipe_type.parallel_output = "Output"
-        pipe_type.parallel_inputs = ("Modules",)
+        pipe_type.parallel_inputs = ("Modules",) if args.pipe == "emit-c" else ()
+        pipe_type.parallel_invalidate_on_model_change = args.pipe == "collect-cfg"
         input_type = pipe_type.signature()[0].container_type
         output_type = pipe_type.signature()[1].container_type
         model_bytes = args.model.read_bytes()
         model = ReadOnlyModel(get_singleton(Model).deserialize(model_bytes)[0])
         object_type = get_singleton(ObjectID)
+        container_id = "clift-functions" if args.pipe == "emit-c" else "llvm-root"
         with sqlite3.connect(f"file:{args.cache}?mode=ro", uri=True) as db:
             savepoint = db.execute(
-                "SELECT max(savepoint_id) FROM objects WHERE container_id=?", ("clift-functions",)
+                "SELECT max(savepoint_id) FROM objects WHERE container_id=?", (container_id,)
             ).fetchone()[0]
             rows = db.execute(
                 "SELECT object_id,content FROM objects WHERE container_id=? "
                 "AND savepoint_id=? ORDER BY object_id LIMIT ?",
-                ("clift-functions", savepoint, args.functions),
+                (container_id, savepoint, args.functions),
             ).fetchall()
         if not rows:
-            raise ValueError("No cached Clift functions in the supplied read-only database")
+            raise ValueError(f"No cached {container_id} inputs in the supplied read-only database")
         compression = input_type.get_compression()
         data = {
             object_type.from_bytes(obj): compression.decompress(content) if compression else content
@@ -96,15 +101,26 @@ def main():
             input_sha256=digest([source]),
             native_revision=(get_root() / "share/revng/component-hashes/revng").read_text().strip(),
         )
-        requested = ObjectSet(input_type.kind, set(data))
+        if args.pipe == "collect-cfg":
+            functions = sorted(model.all_objects(output_type.kind), key=lambda obj: obj.serialize())
+            selected = random.Random(0).sample(functions, min(args.functions, len(functions)))
+            requested = ObjectSet(output_type.kind, set(selected))
+        else:
+            requested = ObjectSet(output_type.kind, set(data))
 
         def arguments():
+            input_container = source
+            input_model = model
+            if args.pipe == "collect-cfg":
+                input_container = input_type()
+                input_container.deserialize(data)
+                input_model = ReadOnlyModel(get_singleton(Model).deserialize(model_bytes)[0])
             return dict(
                 pipe=pipe_type(""),
                 file_provider=NoFiles(),
-                model=model,
-                containers=[source, output_type()],
-                incoming=[requested, ObjectSet(output_type.kind)],
+                model=input_model,
+                containers=[input_container, output_type()],
+                incoming=[input_container.objects(), ObjectSet(output_type.kind)],
                 outgoing=[ObjectSet(input_type.kind), requested],
                 configuration="",
             )
@@ -118,7 +134,7 @@ def main():
             )
 
         output_index = 1
-        scope = "native emit-c, cached Clift inputs, complete unmodified source model"
+        scope = f"native {args.pipe}, cached {container_id}, complete unmodified source model"
     else:
         from test_parallel_runner import arguments as fixture_arguments, command_hook
 
@@ -129,6 +145,7 @@ def main():
         scope = "synthetic CPU-bound per-function fixture, not native decompilation"
     from revng.pypeline.parallel_runner import ParallelRunnerContext
     from revng.pypeline.runner_context import RunnerContext
+    from revng.pypeline.task.pipe import WHOLE_MODEL_INVALIDATION
 
     def normalized(result):
         custom = list(result.custom_invalidation)
@@ -138,7 +155,14 @@ def main():
                 sorted((obj.serialize(), path) for obj, path in entries)
                 for entries in result.dependencies
             ],
-            [sorted((obj.serialize(), bytes(data)) for obj, data in entries) for entries in custom],
+            [
+                sorted(
+                    (obj.serialize(), bytes(data))
+                    for obj, data in entries
+                    if bytes(data) != WHOLE_MODEL_INVALIDATION
+                )
+                for entries in custom
+            ],
         )
 
     report = {"scope": scope, "batch_size": args.batch_size, "runs": [], **metadata}
@@ -147,6 +171,9 @@ def main():
         (repeat, workers) for repeat in range(args.repeat) for workers in [0, *args.workers]
     ):
         call = arguments()
+        batch_size = args.batch_size or math.ceil(
+            len(call["outgoing"][output_index]) / max(1, workers)
+        )
         initial = digest(call["containers"][:output_index])
         runner = (
             RunnerContext()
@@ -155,7 +182,7 @@ def main():
                 args.output / f"repeat-{repeat}-workers-{workers}",
                 command_hook,
                 workers,
-                args.batch_size,
+                batch_size,
             )
         )
         if workers:
@@ -193,7 +220,35 @@ def main():
         actual = (digest([call["containers"][output_index]]), normalized(result))
         if expected is None:
             expected = actual
-        if actual != expected:
+        expected_dependencies = [set(entries) for entries in expected[1][0]]
+        actual_dependencies = [set(entries) for entries in actual[1][0]]
+        covered = len(expected_dependencies) == len(actual_dependencies) and all(
+            want <= got for want, got in zip(expected_dependencies, actual_dependencies)
+        )
+        extra_dependencies = sum(
+            len(got - want) for want, got in zip(expected_dependencies, actual_dependencies)
+        )
+        conservative = False
+        if workers and call["pipe"].parallel_invalidate_on_model_change:
+
+            class ProbeChange:
+                def __len__(self):
+                    return 1
+
+            invalidated = call["pipe"].process_custom_invalidation(
+                result.custom_invalidation, ProbeChange()
+            )
+            conservative = call["pipe"].requires_custom_invalidation(ProbeChange()) and set(
+                invalidated[output_index]
+            ) == set(call["outgoing"][output_index])
+        compatible = (
+            actual[0] == expected[0]
+            and actual[1][1] == expected[1][1]
+            and (covered or conservative)
+        )
+        if not (
+            compatible if args.native_overlay and args.pipe == "collect-cfg" else actual == expected
+        ):
             (args.output / "mismatch.json").write_text(
                 json.dumps(
                     {
@@ -206,7 +261,9 @@ def main():
                 )
             )
             raise AssertionError(f"Output/dependency mismatch for {workers} workers")
-        assert digest(call["containers"][:output_index]) == initial
+        inputs_unchanged = digest(call["containers"][:output_index]) == initial
+        if not (args.native_overlay and args.pipe == "collect-cfg" and workers == 0):
+            assert inputs_unchanged
         row = {
             "repeat": repeat,
             "workers": workers,
@@ -215,8 +272,17 @@ def main():
             "peak_tree_rss_bytes": peak[0],
             "functions": len(call["outgoing"][output_index]),
             "output_sha256": actual[0],
-            "outputs_and_dependencies_equal": True,
-            "inputs_unchanged": True,
+            "outputs_and_dependencies_equal": actual == expected,
+            "outputs_equal": actual[0] == expected[0],
+            "dependencies_cover_serial": covered,
+            "additional_dependencies": extra_dependencies,
+            "missing_native_path_dependencies": sum(
+                len(want - got) for want, got in zip(expected_dependencies, actual_dependencies)
+            ),
+            "whole_model_invalidation": conservative,
+            "effective_invalidation_covers_serial": covered or conservative,
+            "batch_size": batch_size,
+            "inputs_unchanged": inputs_unchanged,
         }
         if report["runs"]:
             row["speedup_vs_in_process"] = round(report["runs"][0]["seconds"] / seconds, 3)

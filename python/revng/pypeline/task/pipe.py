@@ -48,6 +48,8 @@ ObjectDependencies = Annotated[
     """,
 ]
 
+WHOLE_MODEL_INVALIDATION = b"revng-parallel-whole-model-v1"
+
 
 class Pipe(ABC):
     """
@@ -58,6 +60,7 @@ class Pipe(ABC):
     name: str
     parallel_output: str | None = None
     parallel_inputs: tuple[str, ...] = ()
+    parallel_invalidate_on_model_change: bool = False
 
     @classmethod
     @abstractmethod
@@ -177,7 +180,7 @@ class Pipe(ABC):
         Given a diff, report if the `invalidate` method should be called with
         the invalidation data to compute additional objects to invalidate.
         """
-        return False
+        return self.parallel_invalidate_on_model_change and len(diff) > 0
 
     def process_custom_invalidation(
         self, invalidation_data: PipeCustomInvalidation, diff: ModelDiff
@@ -188,10 +191,24 @@ class Pipe(ABC):
         and the opaque invalidation data returned by a previous execution of the
         pipe's run method.
         """
-        return []
+        if not self.parallel_invalidate_on_model_change or not diff:
+            return []
+        return [
+            ObjectSet(
+                argument.container_type.kind,
+                {
+                    obj
+                    for obj, data in (
+                        invalidation_data[index] if index < len(invalidation_data) else []
+                    )
+                    if bytes(data) == WHOLE_MODEL_INVALIDATION
+                },
+            )
+            for index, argument in enumerate(self.signature())
+        ]
 
     def has_custom_invalidation(self):
-        return (
+        return self.parallel_invalidate_on_model_change or (
             self.__class__.requires_custom_invalidation is not Pipe.requires_custom_invalidation
             and self.__class__.process_custom_invalidation is not Pipe.process_custom_invalidation
         )

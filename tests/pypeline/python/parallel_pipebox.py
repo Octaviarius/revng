@@ -66,3 +66,17 @@ class ParallelFixturePipe(Pipe):
 
     def process_custom_invalidation(self, invalidation_data, diff):
         return []
+
+
+class ConservativeFixturePipe(Pipe):
+    name = "ConservativeFixturePipe"
+    parallel_output = "destination"
+    parallel_invalidate_on_model_change = True
+
+    @classmethod
+    def signature(cls):
+        return ParallelFixturePipe.signature()
+
+    def run(self, **kwargs):
+        result = ParallelFixturePipe.run(self, **kwargs)
+        return PipeDependencies(result.dependencies)

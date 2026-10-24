@@ -246,7 +246,14 @@ def test_core_default_and_cap(tmp_path, monkeypatch):
     assert ParallelRunnerContext(tmp_path / "capped", workers=100).workers == 8
 
 
-def test_project_cache_and_model_edit(tmp_path):
+@pytest.mark.parametrize(
+    "pipe_name,changed_path",
+    [
+        ("ParallelFixturePipe", "/root/common"),
+        ("ConservativeFixturePipe", "/unrelated/field"),
+    ],
+)
+def test_project_cache_and_model_edit(tmp_path, pipe_name, changed_path):
     from revng.pypeline.parallel_runner import available_cpus
 
     if available_cpus() < 2:
@@ -276,7 +283,9 @@ branches:
         containers: [destination]
         artifacts:
           - {name: functions, container: destination, category: main, filename: functions.tar}
-"""
+""".replace(
+            "ParallelFixturePipe", pipe_name
+        )
     )
     model = tmp_path / "model.yml"
     model.write_text('"/parallel/count": 7\n')
@@ -308,11 +317,11 @@ branches:
         return result
 
     first = run(1)
-    assert "Parallel ParallelFixturePipe" in first.stderr
+    assert f"Parallel {pipe_name}" in first.stderr
     second = run(2)
-    assert "Parallel ParallelFixturePipe" not in second.stderr
-    model.write_text('"/parallel/count": 7\n"/root/common": 1\n')
+    assert f"Parallel {pipe_name}" not in second.stderr
+    model.write_text(f'"/parallel/count": 7\n"{changed_path}": 1\n')
     third = run(3)
-    assert "Parallel ParallelFixturePipe" in third.stderr
+    assert f"Parallel {pipe_name}" in third.stderr
     output = [ChildDictContainer.from_file(tmp_path / f"out-{i}.tar").to_dict() for i in (1, 2, 3)]
     assert output[0] == output[1] == output[2]

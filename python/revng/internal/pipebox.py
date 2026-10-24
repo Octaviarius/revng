@@ -43,6 +43,10 @@ if "emit-c" in _native_pipes:
     _native_pipes["emit-c"].parallel_output = "Output"
     _native_pipes["emit-c"].parallel_inputs = ("Modules",)
 
+if "collect-cfg" in _native_pipes:
+    _native_pipes["collect-cfg"].parallel_output = "Output"
+    _native_pipes["collect-cfg"].parallel_invalidate_on_model_change = True
+
 
 def initialize(argv: list[str] = []):
     _module.initialize(

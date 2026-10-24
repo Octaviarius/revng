@@ -14,7 +14,7 @@ from threading import Event
 
 from revng.pypeline.object import ObjectSet
 from revng.pypeline.runner_context import ArgvHook, RunnerContext
-from revng.pypeline.task.pipe import Pipe, PipeDependencies
+from revng.pypeline.task.pipe import Pipe, PipeDependencies, WHOLE_MODEL_INVALIDATION
 from revng.pypeline.task.task import TaskArgumentAccess
 from revng.pypeline.utils import PypelineException
 from revng.pypeline.utils.logger import pypeline_logger
@@ -256,6 +256,12 @@ class ParallelRunnerContext(RunnerContext):
         )
         for entries in dependencies:
             entries.sort(key=lambda entry: (entry[0].serialize(), entry[1]))
+        if pipe.parallel_invalidate_on_model_change:
+            if any(custom):
+                raise PypelineException(
+                    "Whole-model policy cannot replace pipe-specific invalidation data"
+                )
+            custom[output_index] = [(obj, WHOLE_MODEL_INVALIDATION) for obj in objects]
         containers[output_index] = merged[output_index]
         self.last_metrics = {
             "functions": len(objects),
