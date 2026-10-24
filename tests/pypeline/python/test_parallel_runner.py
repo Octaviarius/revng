@@ -325,3 +325,169 @@ branches:
     assert f"Parallel {pipe_name}" in third.stderr
     output = [ChildDictContainer.from_file(tmp_path / f"out-{i}.tar").to_dict() for i in (1, 2, 3)]
     assert output[0] == output[1] == output[2]
+
+
+@pytest.mark.parametrize("workers,batch", [(1, 2), (2, 2), (4, 3)])
+def test_in_place_values_and_unrequested_objects(tmp_path, workers, batch):
+    from parallel_pipebox import InPlaceFixturePipe, ValueFunctionContainer
+
+    def make():
+        args = arguments(7)
+        requested = args["outgoing"][2]
+        container = ValueFunctionContainer()
+        container.deserialize({obj: obj.serialize().encode() for obj in requested})
+        container.deserialize({MyObjectID(MyKind.CHILD, "prior"): b"untouched"})
+        args.update(
+            pipe=InPlaceFixturePipe(),
+            containers=[container],
+            incoming=[container.objects()],
+            outgoing=[requested],
+            configuration="",
+        )
+        return args
+
+    serial, parallel = make(), make()
+    RunnerContext().run_pipe(**serial)
+    original = parallel["containers"][0]
+    snapshot = original.serialize()
+    result = runner(tmp_path / "rw", command_hook, workers, batch).run_pipe(**parallel)
+    assert parallel["containers"][0].serialize() == serial["containers"][0].serialize()
+    assert original.serialize() == snapshot
+    assert len(result.custom_invalidation[0]) == 7
+    assert parallel["containers"][0].serialize()[MyObjectID(MyKind.CHILD, "prior")] == b"untouched"
+
+
+@pytest.mark.parametrize("failure", ["fail", "missing", "extra", "missing_input"])
+def test_in_place_failure_keeps_original(tmp_path, failure):
+    from parallel_pipebox import InPlaceFixturePipe, ValueFunctionContainer
+
+    args = arguments(7)
+    requested = args["outgoing"][2]
+    container = ValueFunctionContainer()
+    container.deserialize({obj: b"original" for obj in requested})
+    if failure == "missing_input":
+        container.erase_objects(ObjectSet(MyKind.CHILD, {next(iter(requested))}))
+    args.update(
+        pipe=InPlaceFixturePipe(),
+        containers=[container],
+        incoming=[container.objects()],
+        outgoing=[requested],
+        configuration=json.dumps({failure: "/CHILD/f000"}),
+    )
+    snapshot = container.serialize()
+    with pytest.raises(PypelineException):
+        runner(tmp_path / "rw-failure", command_hook, 2, 2).run_pipe(**args)
+    assert args["containers"][0] is container
+    assert container.serialize() == snapshot
+
+
+def test_in_place_workers_receive_only_owned_inputs(tmp_path):
+    from parallel_pipebox import InPlaceFixturePipe, ValueFunctionContainer
+
+    args = arguments(7)
+    requested = args["outgoing"][2]
+    container = ValueFunctionContainer()
+    container.deserialize({obj: b"original" for obj in requested})
+    args.update(
+        pipe=InPlaceFixturePipe(),
+        containers=[container],
+        incoming=[container.objects()],
+        outgoing=[requested],
+        configuration=json.dumps({"check_sliced": True}),
+    )
+    runner(tmp_path / "rw-sliced", command_hook, 2, 2).run_pipe(**args)
+
+
+def test_unmeasured_pass_configuration_stays_serial(tmp_path):
+    args = arguments(7)
+    args["pipe"].parallel_configurations = (("dce",),)
+    args["pipe"].static_configuration = "passes: [unmeasured-pass]"
+
+    def forbidden(command):
+        raise AssertionError("Unmeasured pass configuration spawned a worker")
+
+    context = runner(tmp_path / "unmeasured", forbidden, workers=2, batch_size=2)
+    context.run_pipe(**args)
+    assert not list((tmp_path / "unmeasured").iterdir())
+
+
+def test_native_opt_in_is_narrow():
+    from types import SimpleNamespace
+    from revng.pypeline.native_parallel import configure_native_parallel_pipes, OPTIMIZATION_PASSES
+
+    pipes = {
+        name: SimpleNamespace() for name in ("isolate", "clifter", "pure-llvm-passes-pipe", "lift")
+    }
+    configure_native_parallel_pipes(pipes)
+    assert pipes["isolate"].parallel_invalidate_on_model_change
+    assert pipes["clifter"].parallel_inputs == ("Input",)
+    assert pipes["pure-llvm-passes-pipe"].parallel_in_place
+    assert pipes["pure-llvm-passes-pipe"].parallel_configurations == (OPTIMIZATION_PASSES,)
+    assert not hasattr(pipes["lift"], "parallel_output")
+
+
+def test_in_place_cache_restores_original_input_after_model_edit(tmp_path):
+    import subprocess
+    from parallel_pipebox import ValueFunctionContainer
+    from revng.pypeline.parallel_runner import available_cpus
+
+    if available_cpus() < 2:
+        pytest.skip("Needs two available CPUs")
+    pipeline = tmp_path / "pipeline.yml"
+    pipeline.write_text(
+        """
+artifact-categories:
+  - {name: main, show-by-default: true}
+containers:
+  - {name: values, type: ValueFunctionContainer}
+branches:
+  root:
+    tasks:
+      - {pipe: ValueSeedPipe, arguments: [values]}
+      - {savepoint: source, containers: [values]}
+      - {pipe: InPlaceFixturePipe, arguments: [values]}
+      - savepoint: result
+        containers: [values]
+        artifacts:
+          - {name: functions, container: values, category: main, filename: functions.tar}
+"""
+    )
+    model = tmp_path / "model.yml"
+    model.write_text('"/parallel/count": 7\n')
+    outputs = []
+    for index in range(3):
+        if index == 2:
+            model.write_text('"/parallel/count": 7\n"/unrelated/field": 1\n')
+        output = tmp_path / f"output-{index}.tar"
+        command = command_hook(
+            [
+                "pype",
+                "project",
+                "--pipeline",
+                str(pipeline),
+                "artifact",
+                "functions",
+                "--tar",
+                "-o",
+                str(output),
+                "--cores",
+                "2",
+                "--parallel-batch-size",
+                "4",
+                "--parallel-min-functions",
+                "0",
+                "--parallel-min-per-worker",
+                "1",
+            ]
+        )
+        result = subprocess.run(command, cwd=tmp_path, text=True, capture_output=True, timeout=90)
+        assert result.returncode == 0, result.stderr
+        assert ("Parallel InPlaceFixturePipe" in result.stderr) == (index != 1)
+        container = ValueFunctionContainer.from_file(output)
+        outputs.append(container.serialize())
+    assert outputs[0] == outputs[1]
+    assert outputs[0] != outputs[2]
+    assert all(
+        value.startswith(b"seed-changed-") and value.count(b"-changed-") == 1
+        for value in outputs[2].values()
+    )

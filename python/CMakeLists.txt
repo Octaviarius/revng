@@ -451,6 +451,7 @@ set(REVNG_PYPELINE_MODULE_FILES
     revng/pypeline/pipeline.py
     revng/pypeline/runner_context.py
     revng/pypeline/parallel_runner.py
+    revng/pypeline/native_parallel.py
     revng/pypeline/schema.yml
     revng/pypeline/daemon/__init__.py
     revng/pypeline/daemon/app.py

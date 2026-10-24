@@ -39,9 +39,16 @@ def main():
     parser.add_argument("--rounds", type=int, default=1000000)
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--native-overlay", type=Path)
-    parser.add_argument("--pipe", choices=["emit-c", "collect-cfg"], default="emit-c")
+    parser.add_argument(
+        "--pipe",
+        choices=["emit-c", "collect-cfg", "isolate", "clifter", "pure-llvm-passes-pipe"],
+        default="emit-c",
+    )
     parser.add_argument("--model", type=Path)
     parser.add_argument("--cache", type=Path)
+    parser.add_argument("--input-savepoint", type=int)
+    parser.add_argument("--static-configuration", type=Path)
+    parser.add_argument("--prepare-pipeline", type=Path)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     metadata = {
@@ -59,69 +66,206 @@ def main():
         from revng.pypeline.object import ObjectID, ObjectSet
         from revng.pypeline.utils.registry import get_singleton
         from revng.pypeline.storage.file_provider import FileProvider
+        from revng.pypeline.task.task import TaskArgumentAccess
 
         class NoFiles(FileProvider):
             def get_files(self, requests):
                 assert not requests
                 return {}
 
+        pipebox.initialize([])
         initialize_pypeline()
         pipe_type = pipebox._native_pipes[args.pipe]
-        pipe_type.parallel_output = "Output"
-        pipe_type.parallel_inputs = ("Modules",) if args.pipe == "emit-c" else ()
-        pipe_type.parallel_invalidate_on_model_change = args.pipe == "collect-cfg"
-        input_type = pipe_type.signature()[0].container_type
-        output_type = pipe_type.signature()[1].container_type
-        model_bytes = args.model.read_bytes()
-        model = ReadOnlyModel(get_singleton(Model).deserialize(model_bytes)[0])
+        signature = pipe_type.signature()
+        output_index = next(
+            i for i, arg in enumerate(signature) if arg.access & TaskArgumentAccess.WRITE
+        )
+        output_type = signature[output_index].container_type
+        pipe_type.parallel_output = signature[output_index].name
+        pipe_type.parallel_in_place = (
+            signature[output_index].access == TaskArgumentAccess.READ_WRITE
+        )
+        pipe_type.parallel_inputs = {"emit-c": ("Modules",), "clifter": ("Input",)}.get(
+            args.pipe, ()
+        )
+        pipe_type.parallel_invalidate_on_model_change = args.pipe in (
+            "collect-cfg",
+            "isolate",
+            "clifter",
+        )
+        static_configuration = (
+            args.static_configuration.read_text() if args.static_configuration else ""
+        )
         object_type = get_singleton(ObjectID)
-        container_id = "clift-functions" if args.pipe == "emit-c" else "llvm-root"
-        with sqlite3.connect(f"file:{args.cache}?mode=ro", uri=True) as db:
-            savepoint = db.execute(
-                "SELECT max(savepoint_id) FROM objects WHERE container_id=?", (container_id,)
-            ).fetchone()[0]
-            rows = db.execute(
-                "SELECT object_id,content FROM objects WHERE container_id=? "
-                "AND savepoint_id=? ORDER BY object_id LIMIT ?",
-                (container_id, savepoint, args.functions),
-            ).fetchall()
-        if not rows:
-            raise ValueError(f"No cached {container_id} inputs in the supplied read-only database")
-        compression = input_type.get_compression()
-        data = {
-            object_type.from_bytes(obj): compression.decompress(content) if compression else content
-            for obj, content in rows
+        container_ids = {
+            "LLVMRootContainer": "llvm-root",
+            "CFGMap": "cfg-map",
+            "LLVMFunctionContainer": "llvm-functions",
+            "CliftFunctionContainer": "clift-functions",
         }
-        source = input_type()
-        source.deserialize(data)
+        data_by_index = {}
+        source_savepoints = {}
+        with sqlite3.connect(f"file:{args.cache}?mode=ro", uri=True) as db:
+            model_bytes = (
+                args.model.read_bytes()
+                if args.model
+                else bytes(
+                    db.execute("SELECT last_seen_model FROM project WHERE id=0").fetchone()[0]
+                )
+            )
+            for i, arg in enumerate(signature):
+                if not arg.access & TaskArgumentAccess.READ:
+                    continue
+                cid = container_ids[arg.container_type.__name__]
+                savepoint = (
+                    args.input_savepoint
+                    if args.input_savepoint is not None and arg.container_type.kind.rank() == 1
+                    else db.execute(
+                        "SELECT max(savepoint_id) FROM objects WHERE container_id=?", (cid,)
+                    ).fetchone()[0]
+                )
+                ids = [
+                    row[0]
+                    for row in db.execute(
+                        "SELECT object_id FROM objects WHERE container_id=? AND savepoint_id=? ORDER BY object_id",
+                        (cid, savepoint),
+                    )
+                ]
+                if arg.container_type.__name__ in (
+                    "LLVMFunctionContainer",
+                    "CliftFunctionContainer",
+                ):
+                    ids = random.Random(0).sample(ids, min(args.functions, len(ids)))
+                if not ids:
+                    raise ValueError(f"No {cid} objects at savepoint {savepoint}")
+                rows = [
+                    db.execute(
+                        "SELECT object_id,content FROM objects WHERE container_id=? AND savepoint_id=? AND object_id=?",
+                        (cid, savepoint, obj),
+                    ).fetchone()
+                    for obj in ids
+                ]
+                compression = arg.container_type.get_compression()
+                data_by_index[i] = {
+                    object_type.from_bytes(obj): (
+                        compression.decompress(content) if compression else content
+                    )
+                    for obj, content in rows
+                }
+                source_savepoints[cid] = savepoint
+        model = ReadOnlyModel(get_singleton(Model).deserialize(model_bytes)[0])
+        candidates = set(model.all_objects(output_type.kind))
+        for i, data in data_by_index.items():
+            if signature[i].container_type.kind == output_type.kind:
+                candidates.intersection_update(data)
+        selected = random.Random(0).sample(
+            sorted(candidates, key=lambda obj: obj.serialize()),
+            min(args.functions, len(candidates)),
+        )
+        requested = ObjectSet(output_type.kind, set(selected))
+        if not requested:
+            raise ValueError("No matching requested functions")
+        if args.prepare_pipeline:
+            if args.pipe not in ("clifter", "pure-llvm-passes-pipe"):
+                raise ValueError("Unsupported preparation target")
+            import yaml
+            from revng.pypeline.runner_context import RunnerContext
+
+            prepared = signature[0].container_type()
+            prepared.deserialize(data_by_index[0])
+            began_preparation = time.monotonic()
+            preparation = []
+            branch = "clift-functions" if args.pipe == "clifter" else "segregate-stack-accesses"
+            extras = {}
+            matched = False
+            for task in yaml.safe_load(args.prepare_pipeline.read_text())["branches"][branch][
+                "tasks"
+            ]:
+                if "pipe" not in task:
+                    continue
+                name = task["pipe"]
+                same_configuration = task.get("configuration", {}) == (
+                    yaml.safe_load(static_configuration) or {}
+                )
+                if name == args.pipe and (args.pipe == "clifter" or same_configuration):
+                    matched = True
+                    break
+                config = yaml.safe_dump(task["configuration"]) if "configuration" in task else ""
+                stage = pipebox._native_pipes[name](config)
+                stage_containers = []
+                for arg in stage.signature():
+                    if arg.container_type is signature[0].container_type:
+                        stage_containers.append(prepared)
+                    else:
+                        if arg.container_type not in extras:
+                            container = arg.container_type()
+                            cid = container_ids[arg.container_type.__name__]
+                            with sqlite3.connect(f"file:{args.cache}?mode=ro", uri=True) as db:
+                                sp = db.execute(
+                                    "SELECT max(savepoint_id) FROM objects WHERE container_id=?",
+                                    (cid,),
+                                ).fetchone()[0]
+                                values = db.execute(
+                                    "SELECT object_id,content FROM objects WHERE container_id=? AND savepoint_id=?",
+                                    (cid, sp),
+                                ).fetchall()
+                            compression = arg.container_type.get_compression()
+                            container.deserialize(
+                                {
+                                    object_type.from_bytes(obj): (
+                                        compression.decompress(data) if compression else data
+                                    )
+                                    for obj, data in values
+                                }
+                            )
+                            extras[arg.container_type] = container
+                        stage_containers.append(extras[arg.container_type])
+                RunnerContext().run_pipe(
+                    pipe=stage,
+                    file_provider=NoFiles(),
+                    model=model,
+                    containers=stage_containers,
+                    incoming=[c.objects() for c in stage_containers],
+                    outgoing=[
+                        (
+                            requested
+                            if arg.access & TaskArgumentAccess.WRITE
+                            else ObjectSet(arg.container_type.kind)
+                        )
+                        for arg in stage.signature()
+                    ],
+                    configuration="",
+                )
+                preparation.append(name)
+            if not matched:
+                raise ValueError("Preparation did not find requested stage/configuration")
+            data_by_index[0] = prepared.serialize(prepared.objects())
+            metadata.update(
+                preparation=preparation, preparation_seconds=time.monotonic() - began_preparation
+            )
         from revng.support import get_root
 
         metadata.update(
             model_sha256=hashlib.sha256(model_bytes).hexdigest(),
-            input_sha256=digest([source]),
             native_revision=(get_root() / "share/revng/component-hashes/revng").read_text().strip(),
+            input_savepoints=source_savepoints,
+            static_configuration=static_configuration,
         )
-        if args.pipe == "collect-cfg":
-            functions = sorted(model.all_objects(output_type.kind), key=lambda obj: obj.serialize())
-            selected = random.Random(0).sample(functions, min(args.functions, len(functions)))
-            requested = ObjectSet(output_type.kind, set(selected))
-        else:
-            requested = ObjectSet(output_type.kind, set(data))
 
         def arguments():
-            input_container = source
-            input_model = model
-            if args.pipe == "collect-cfg":
-                input_container = input_type()
-                input_container.deserialize(data)
-                input_model = ReadOnlyModel(get_singleton(Model).deserialize(model_bytes)[0])
+            containers = [arg.container_type() for arg in signature]
+            for i, data in data_by_index.items():
+                containers[i].deserialize(data)
             return dict(
-                pipe=pipe_type(""),
+                pipe=pipe_type(static_configuration),
                 file_provider=NoFiles(),
-                model=input_model,
-                containers=[input_container, output_type()],
-                incoming=[input_container.objects(), ObjectSet(output_type.kind)],
-                outgoing=[ObjectSet(input_type.kind), requested],
+                model=ReadOnlyModel(get_singleton(Model).deserialize(model_bytes)[0]),
+                containers=containers,
+                incoming=[c.objects() for c in containers],
+                outgoing=[
+                    requested if i == output_index else ObjectSet(arg.container_type.kind)
+                    for i, arg in enumerate(signature)
+                ],
                 configuration="",
             )
 
@@ -133,8 +277,7 @@ def main():
                 command, get_root() / "libexec/revng/pypeline-run-pipe", pipebox._native_libraries
             )
 
-        output_index = 1
-        scope = f"native {args.pipe}, cached {container_id}, complete unmodified source model"
+        scope = f"native {args.pipe}, cached inputs, complete unmodified source model"
     else:
         from test_parallel_runner import arguments as fixture_arguments, command_hook
 
@@ -147,14 +290,40 @@ def main():
     from revng.pypeline.runner_context import RunnerContext
     from revng.pypeline.task.pipe import WHOLE_MODEL_INVALIDATION
 
+    llvm_text = None
+    if args.native_overlay and output_type.__name__ == "LLVMFunctionContainer":
+        from revng.support import get_root
+        from llvm_compare import LLVMText
+
+        passes = (
+            b"strip-nondebug,function(instcombine,reassociate,gvn)"
+            if args.pipe == "pure-llvm-passes-pipe"
+            else b"strip-nondebug"
+        )
+        llvm_text = LLVMText(get_root() / "lib64/llvm/llvm/lib", passes)
+        metadata["llvm_comparison_passes"] = passes.decode()
+
+    def output_digest(container):
+        if llvm_text is None:
+            return digest([container])
+        if not container.verify():
+            raise ValueError("LLVM output verification failed")
+        value = hashlib.sha256()
+        for obj, data in sorted(
+            container.serialize(container.objects()).items(), key=lambda item: item[0].serialize()
+        ):
+            value.update(obj.serialize().encode())
+            value.update(llvm_text(bytes(data)))
+        return value.hexdigest()
+
     def normalized(result):
+        dependencies = list(result.dependencies)
+        size = len(pipe_type.signature()) if args.native_overlay else 3
+        dependencies.extend([] for _ in range(size - len(dependencies)))
         custom = list(result.custom_invalidation)
-        custom.extend([] for _ in range(len(result.dependencies) - len(custom)))
+        custom.extend([] for _ in range(size - len(custom)))
         return (
-            [
-                sorted((obj.serialize(), path) for obj, path in entries)
-                for entries in result.dependencies
-            ],
+            [sorted((obj.serialize(), path) for obj, path in entries) for entries in dependencies],
             [
                 sorted(
                     (obj.serialize(), bytes(data))
@@ -189,7 +358,7 @@ def main():
             runner.min_functions = 0
             runner.min_functions_per_worker = 1
         done = Event()
-        peak = [0]
+        peak = [psutil.Process().memory_info().rss]
 
         def sample():
             parent = psutil.Process()
@@ -217,9 +386,14 @@ def main():
         seconds = time.monotonic() - began
         cpu = resource.getrusage(resource.RUSAGE_CHILDREN)
         cpu_seconds = time.process_time() + cpu.ru_utime + cpu.ru_stime - cpu_before
-        actual = (digest([call["containers"][output_index]]), normalized(result))
+        actual = (output_digest(call["containers"][output_index]), normalized(result))
         if expected is None:
             expected = actual
+            from revng.pypeline.container import ContainerFormat
+
+            call["containers"][output_index].to_file(
+                args.output / "serial-output.tar", container_format=ContainerFormat.TAR
+            )
         expected_dependencies = [set(entries) for entries in expected[1][0]]
         actual_dependencies = [set(entries) for entries in actual[1][0]]
         covered = len(expected_dependencies) == len(actual_dependencies) and all(
@@ -247,8 +421,13 @@ def main():
             and (covered or conservative)
         )
         if not (
-            compatible if args.native_overlay and args.pipe == "collect-cfg" else actual == expected
+            compatible
+            if args.native_overlay and call["pipe"].parallel_invalidate_on_model_change
+            else actual == expected
         ):
+            call["containers"][output_index].to_file(
+                args.output / "mismatched-output.tar", container_format=ContainerFormat.TAR
+            )
             (args.output / "mismatch.json").write_text(
                 json.dumps(
                     {
@@ -272,6 +451,12 @@ def main():
             "peak_tree_rss_bytes": peak[0],
             "functions": len(call["outgoing"][output_index]),
             "output_sha256": actual[0],
+            "raw_output_sha256": digest([call["containers"][output_index]]),
+            "comparison": (
+                "normalized LLVM text with native LLVM verifier"
+                if args.native_overlay and output_type.__name__ == "LLVMFunctionContainer"
+                else "exact serialized output"
+            ),
             "outputs_and_dependencies_equal": actual == expected,
             "outputs_equal": actual[0] == expected[0],
             "dependencies_cover_serial": covered,

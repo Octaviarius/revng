@@ -76,6 +76,16 @@ class ParallelRunnerContext(RunnerContext):
     def _output_index(pipe: Pipe) -> int | None:
         if pipe.parallel_output is None:
             return None
+        if pipe.parallel_configurations:
+            import yaml
+
+            configuration = yaml.safe_load(pipe.static_configuration) or {}
+            if (
+                not isinstance(configuration, dict)
+                or set(configuration) != {"passes"}
+                or tuple(configuration.get("passes", ())) not in pipe.parallel_configurations
+            ):
+                return None
         writable = [
             (i, arg)
             for i, arg in enumerate(pipe.signature())
@@ -83,7 +93,12 @@ class ParallelRunnerContext(RunnerContext):
         ]
         if (
             len(writable) != 1
-            or writable[0][1].access != TaskArgumentAccess.WRITE
+            or writable[0][1].access
+            != (
+                TaskArgumentAccess.READ_WRITE
+                if pipe.parallel_in_place
+                else TaskArgumentAccess.WRITE
+            )
             or writable[0][1].name != pipe.parallel_output
             or writable[0][1].container_type.kind.rank() != 1
         ):
@@ -178,6 +193,11 @@ class ParallelRunnerContext(RunnerContext):
             ):
                 raise PypelineException(f"Invalid parallel input contract for {pipe.name}")
             sliced[matches[0][0]] = f"{normalize_flag(name)}.tar"
+        if pipe.parallel_in_place:
+            if not requested.issubset(containers[output_index].objects()):
+                raise PypelineException("In-place parallel request is missing input objects")
+            name = pipe.signature()[output_index].name
+            sliced[output_index] = f"{normalize_flag(name)}.tar"
         directory = self._get_directory(pipe.name)
         shared = directory / "shared"
         shared.mkdir()
@@ -254,6 +274,12 @@ class ParallelRunnerContext(RunnerContext):
         merged[output_index].deserialize(
             containers[output_index].serialize(containers[output_index].objects() - requested)
         )
+        expected_objects = set(containers[output_index].objects()) | set(requested)
+        if (
+            set(merged[output_index].objects()) != expected_objects
+            or not merged[output_index].verify()
+        ):
+            raise PypelineException("Invalid merged parallel container")
         for entries in dependencies:
             entries.sort(key=lambda entry: (entry[0].serialize(), entry[1]))
         if pipe.parallel_invalidate_on_model_change:

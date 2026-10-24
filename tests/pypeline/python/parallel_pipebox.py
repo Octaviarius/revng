@@ -80,3 +80,75 @@ class ConservativeFixturePipe(Pipe):
     def run(self, **kwargs):
         result = ParallelFixturePipe.run(self, **kwargs)
         return PipeDependencies(result.dependencies)
+
+
+class ValueFunctionContainer(DictContainer):
+    name = "ValueFunctionContainer"
+    kind = MyKind.CHILD
+
+    def __init__(self):
+        super().__init__()
+        self.values = {}
+
+    def deserialize(self, data):
+        for obj, value in data.items():
+            self.add_object(obj)
+            self.values[obj] = bytes(value)
+
+    def serialize(self, objects=None):
+        return {obj: self.values[obj] for obj in (self.objects() if objects is None else objects)}
+
+    def clone(self, objects=None):
+        result = type(self)()
+        result.deserialize(self.serialize(objects))
+        return result
+
+    def merge(self, other):
+        self.deserialize(other.serialize())
+
+    def erase_objects(self, objects):
+        for obj in objects:
+            self.values.pop(obj, None)
+        super().erase_objects(objects)
+
+    def clear(self):
+        self.values.clear()
+        super().clear()
+
+
+class InPlaceFixturePipe(Pipe):
+    name = "InPlaceFixturePipe"
+    parallel_output = "modules"
+    parallel_in_place = True
+    parallel_invalidate_on_model_change = True
+
+    @classmethod
+    def signature(cls):
+        return (TaskArgument("modules", ValueFunctionContainer, TaskArgumentAccess.READ_WRITE),)
+
+    def run(self, file_provider, model, containers, incoming, outgoing, configuration):
+        config = json.loads(configuration or "{}")
+        if config.get("check_sliced") and containers[0].objects() != outgoing[0]:
+            raise RuntimeError("In-place worker received unowned input")
+        original = containers[0].serialize(outgoing[0])
+        for obj, data in original.items():
+            containers[0].deserialize({obj: data + b"-changed-" + model.serialize()})
+            if config.get("fail") == obj.serialize():
+                raise RuntimeError("Failure after in-place mutation")
+        if config.get("missing"):
+            containers[0].erase_objects(ObjectSet(MyKind.CHILD, {next(iter(outgoing[0]))}))
+        if config.get("extra"):
+            containers[0].deserialize({MyObjectID(MyKind.CHILD, "extra"): b"foreign"})
+        return PipeDependencies([[(obj, "/parallel/count") for obj in outgoing[0]]])
+
+
+class ValueSeedPipe(Pipe):
+    name = "ValueSeedPipe"
+
+    @classmethod
+    def signature(cls):
+        return (TaskArgument("output", ValueFunctionContainer, TaskArgumentAccess.WRITE),)
+
+    def run(self, file_provider, model, containers, incoming, outgoing, configuration):
+        containers[0].deserialize({obj: b"seed" for obj in outgoing[0]})
+        return PipeDependencies([[(obj, "/parallel/count") for obj in outgoing[0]]])

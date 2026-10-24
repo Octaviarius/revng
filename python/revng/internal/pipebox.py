@@ -39,13 +39,9 @@ def _collect_native_pipes_and_analyses():
 
 _collect_native_pipes_and_analyses()
 
-if "emit-c" in _native_pipes:
-    _native_pipes["emit-c"].parallel_output = "Output"
-    _native_pipes["emit-c"].parallel_inputs = ("Modules",)
+from revng.pypeline.native_parallel import configure_native_parallel_pipes
 
-if "collect-cfg" in _native_pipes:
-    _native_pipes["collect-cfg"].parallel_output = "Output"
-    _native_pipes["collect-cfg"].parallel_invalidate_on_model_change = True
+configure_native_parallel_pipes(_native_pipes)
 
 
 def initialize(argv: list[str] = []):

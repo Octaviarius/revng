@@ -60,6 +60,8 @@ class Pipe(ABC):
     name: str
     parallel_output: str | None = None
     parallel_inputs: tuple[str, ...] = ()
+    parallel_in_place: bool = False
+    parallel_configurations: tuple[tuple[str, ...], ...] = ()
     parallel_invalidate_on_model_change: bool = False
 
     @classmethod
