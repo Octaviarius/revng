@@ -65,7 +65,7 @@ CREATE TEMPORARY TABLE additional_objects_{uuid}(
 ) STRICT;
 
 CREATE TEMPORARY TABLE invalidated_objects_{uuid}(
-    object_row_id   INT NOT NULL
+    object_row_id   INTEGER PRIMARY KEY
 ) STRICT;
 """
 
@@ -122,45 +122,62 @@ PUT_DEPENDENCIES_QUERY = "REPLACE INTO dependencies VALUES (?, ?, ?, ?, ?, ?)"
 #       there's only children of root, so the check becomes:
 #       `dependencies.object_id != x'' AND objects.object_id = x''`
 INVALIDATE_QUERY = """
-INSERT INTO invalidated_objects_{uuid}
-    SELECT DISTINCT objects.rowid
-    FROM objects
-    JOIN (
-            SELECT savepoint_id_start, savepoint_id_end, configuration_hash, object_id
-            FROM dependencies
-            WHERE dependencies.model_path IN (SELECT path FROM model_paths_{uuid})
-        UNION
-            SELECT savepoint_id_start, savepoint_id_end, configuration_hash, object_id
-            FROM additional_objects_{uuid}
-    ) AS dependencies
-    WHERE (
-            (
-              objects.object_id >= dependencies.object_id
-              AND objects.object_id <= CAST((dependencies.object_id || {objectid_mask}) AS BLOB)
-            ) OR (
-              dependencies.object_id != x'' AND objects.object_id = x''
-            )
-          )
-          AND objects.configuration_hash = dependencies.configuration_hash
-          AND objects.savepoint_id >= dependencies.savepoint_id_start
-          AND objects.savepoint_id <= dependencies.savepoint_id_end
-;
+CREATE TEMPORARY TABLE object_metadata_{uuid} AS
+    SELECT rowid AS source_rowid, savepoint_id, container_id, configuration_hash, object_id
+    FROM objects;
+CREATE INDEX object_metadata_range_{uuid}
+    ON object_metadata_{uuid}(configuration_hash, object_id, savepoint_id);
+CREATE INDEX object_metadata_root_{uuid}
+    ON object_metadata_{uuid}(configuration_hash, savepoint_id) WHERE object_id = x'';
 
-DELETE FROM dependencies
-WHERE rowid in (
-    SELECT DISTINCT dependencies.rowid
-    FROM dependencies
-    JOIN (
-        SELECT savepoint_id, container_id, configuration_hash, object_id
-        FROM objects
-        WHERE rowid IN (SELECT object_row_id FROM invalidated_objects_{uuid})
-    ) AS invalidated_objects
-    WHERE
-        dependencies.savepoint_id_start = invalidated_objects.savepoint_id
-        AND dependencies.container_id = invalidated_objects.container_id
-        AND dependencies.configuration_hash = invalidated_objects.configuration_hash
-        AND dependencies.object_id = invalidated_objects.object_id
+CREATE TEMPORARY TABLE changed_dependencies_{uuid} AS
+    SELECT savepoint_id_start, savepoint_id_end, configuration_hash, object_id
+    FROM dependencies WHERE model_path IN (SELECT path FROM model_paths_{uuid})
+    UNION
+    SELECT savepoint_id_start, savepoint_id_end, configuration_hash, object_id
+    FROM additional_objects_{uuid};
+
+INSERT OR IGNORE INTO invalidated_objects_{uuid}
+    SELECT o.source_rowid
+    FROM changed_dependencies_{uuid} AS d
+    CROSS JOIN object_metadata_{uuid} AS o INDEXED BY object_metadata_range_{uuid}
+    WHERE o.configuration_hash = d.configuration_hash
+      AND o.object_id >= d.object_id
+      AND o.object_id <= CAST((d.object_id || {objectid_mask}) AS BLOB)
+      AND o.savepoint_id BETWEEN d.savepoint_id_start AND d.savepoint_id_end;
+
+INSERT OR IGNORE INTO invalidated_objects_{uuid}
+    SELECT o.source_rowid
+    FROM changed_dependencies_{uuid} AS d
+    CROSS JOIN object_metadata_{uuid} AS o INDEXED BY object_metadata_root_{uuid}
+    WHERE d.object_id != x'' AND o.object_id = x''
+      AND o.configuration_hash = d.configuration_hash
+      AND o.savepoint_id BETWEEN d.savepoint_id_start AND d.savepoint_id_end;
+
+CREATE TEMPORARY TABLE invalidated_owners_{uuid}(
+    savepoint_id INT NOT NULL, container_id TEXT NOT NULL,
+    configuration_hash TEXT NOT NULL, object_id BLOB NOT NULL,
+    PRIMARY KEY(savepoint_id, container_id, configuration_hash, object_id)
+) WITHOUT ROWID;
+INSERT INTO invalidated_owners_{uuid}
+    SELECT savepoint_id, container_id, configuration_hash, object_id
+    FROM object_metadata_{uuid}
+    WHERE source_rowid IN (SELECT object_row_id FROM invalidated_objects_{uuid});
+
+DELETE FROM dependencies WHERE rowid IN (
+    SELECT d.rowid FROM dependencies AS d
+    WHERE EXISTS (
+        SELECT 1 FROM invalidated_owners_{uuid} AS o
+        WHERE d.savepoint_id_start = o.savepoint_id
+          AND d.container_id = o.container_id
+          AND d.configuration_hash = o.configuration_hash
+          AND d.object_id = o.object_id
+    )
 );
+
+DROP TABLE invalidated_owners_{uuid};
+DROP TABLE changed_dependencies_{uuid};
+DROP TABLE object_metadata_{uuid};
 """
 
 # Second part of `INVALIDATE_QUERY`, this is a separate variable due to a

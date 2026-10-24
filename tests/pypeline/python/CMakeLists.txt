@@ -3,6 +3,11 @@
 #
 
 revng_add_test(
+  NAME test_sqlite_invalidation COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/test_sqlite_invalidation.py")
+set_tests_properties(test_sqlite_invalidation PROPERTIES LABELS "pypeline")
+
+revng_add_test(
   NAME
   test_pypeline
   COMMAND
