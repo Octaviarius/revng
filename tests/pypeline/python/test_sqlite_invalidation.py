@@ -66,6 +66,39 @@ def run_invalidation(db, paths, additional, legacy=False):
 
 
 class SQLiteInvalidationTest(unittest.TestCase):
+    def test_custom_dependency_migration_preserves_cache(self):
+        with closing(database()) as db:
+            db.executescript(
+                """
+                CREATE TABLE custom_dependencies(pipe_id INT,configuration_hash TEXT,
+                    argument_index INT,object_id BLOB,data BLOB,
+                    PRIMARY KEY(pipe_id,configuration_hash));
+                CREATE INDEX custom_dependencies_index ON custom_dependencies(pipe_id,configuration_hash);
+                INSERT INTO custom_dependencies VALUES(1,'config',1,x'01',x'10');
+                INSERT INTO objects VALUES(1,'out','config',x'01',x'10');
+                INSERT INTO dependencies VALUES(1,2,'out','config',x'01','/path');
+            """
+            )
+            before = [
+                db.execute(f"SELECT * FROM {table}").fetchall()
+                for table in ("objects", "dependencies", "custom_dependencies")
+            ]
+            migration = (
+                Path(__file__).resolve().parents[3]
+                / "python/revng/pypeline/storage/local_provider_migrations/v4.sql"
+            )
+            db.executescript(migration.read_text())
+            after = [
+                db.execute(f"SELECT * FROM {table}").fetchall()
+                for table in ("objects", "dependencies", "custom_dependencies")
+            ]
+            self.assertEqual(before, after)
+            db.execute("INSERT INTO custom_dependencies VALUES(1,'config',1,x'02',x'20')")
+            db.execute("INSERT INTO custom_dependencies VALUES(1,'config',2,x'01',x'30')")
+            self.assertEqual(
+                db.execute("SELECT count(*) FROM custom_dependencies").fetchone()[0], 3
+            )
+
     def test_matches_legacy(self):
         ids = [b"", b"\xff" * 17, b"\x80\x00"]
         ids += [bytes([i]) for i in range(1, 15)]

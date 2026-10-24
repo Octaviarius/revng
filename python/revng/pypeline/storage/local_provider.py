@@ -216,6 +216,10 @@ class Migrator(DBMigrator):
             "pypeline",
             PurePath(self.__module__.replace(".", "/")).parent / "local_provider_migrations",
         )
+        for migration in Path(__file__).with_name("local_provider_migrations").glob("v*.sql"):
+            self._migrations[int(migration.stem[1:])] = migration
+        self.last_version = max(self._migrations)
+        assert set(self._migrations) == set(range(1, self.last_version + 1))
         self._cursor = cursor
 
     def _create_tables_if_missing(self):
