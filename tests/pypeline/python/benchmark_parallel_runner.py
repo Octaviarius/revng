@@ -41,8 +41,11 @@ def main():
     parser.add_argument("--cache", type=Path)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
-    metadata = {"runner_commit": subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[3], text=True).strip()}
+    metadata = {
+        "runner_commit": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[3], text=True
+        ).strip()
+    }
     if args.native_overlay:
         import revng
 
@@ -87,9 +90,12 @@ def main():
         source = input_type()
         source.deserialize(data)
         from revng.support import get_root
-        metadata.update(model_sha256=hashlib.sha256(model_bytes).hexdigest(),
-                        input_sha256=digest([source]),
-                        native_revision=(get_root() / "share/revng/component-hashes/revng").read_text().strip())
+
+        metadata.update(
+            model_sha256=hashlib.sha256(model_bytes).hexdigest(),
+            input_sha256=digest([source]),
+            native_revision=(get_root() / "share/revng/component-hashes/revng").read_text().strip(),
+        )
         requested = ObjectSet(input_type.kind, set(data))
 
         def arguments():
