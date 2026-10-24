@@ -1,2 +1,13 @@
 .clang-format
 .mypy_cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+/build/
+/build-*/
