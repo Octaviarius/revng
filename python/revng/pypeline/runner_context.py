@@ -63,7 +63,7 @@ class RunnerContext:
         self.counter += 1
         return result
 
-    def _run_command(self, root_directory: Path, cmd: list[str]):
+    def _prepare_command(self, root_directory: Path, cmd: list[str]) -> list[str]:
         assert self.use_system
 
         # Apply argv_hook if present
@@ -88,6 +88,10 @@ exec \\
         script_path.chmod(0o755)
 
         pypeline_logger.debug_log(f"Running debug command: {cmd}")
+        return cmd
+
+    def _run_command(self, root_directory: Path, cmd: list[str]):
+        cmd = self._prepare_command(root_directory, cmd)
         result = subprocess.run(cmd, cwd=root_directory)
         if result.returncode != 0:
             pypeline_logger.log("\nDebug command failed! Re-run it with:")
@@ -101,6 +105,7 @@ exec \\
         model: ReadOnlyModel,
         file_provider: FileProvider,
         containers: list[Container],
+        input_objects: dict[int, ObjectSet] | None = None,
     ):
         model_type = get_singleton(Model)  # type: ignore[type-abstract]
 
@@ -138,7 +143,10 @@ exec \\
             arg_name = normalize_flag(argument.name)
             if argument.access & TaskArgumentAccess.READ:
                 output_path = directory / f"inputs/{arg_name}.tar"
-                containers[index].to_file(output_path, container_format=ContainerFormat.TAR)
+                objects = input_objects.get(index) if input_objects is not None else None
+                containers[index].to_file(
+                    output_path, objects, container_format=ContainerFormat.TAR
+                )
 
     def _pipe_construct_cmd(
         self,
@@ -199,11 +207,15 @@ exec \\
 
                 if tar_info.name == "dependencies.yml":
                     dependency_data = yaml.safe_load(tar_member_file)
-                    for index, raw_object_id, dependency_model_path in dependency_data:
+                    for index, raw_object_id, dependency_model_path in dependency_data or []:
+                        if not isinstance(index, int) or not 0 <= index < len(dependencies):
+                            raise PypelineException("Invalid dependency argument index")
                         object_id = object_id_type.deserialize(raw_object_id)
                         dependencies[index].append((object_id, dependency_model_path))
                 else:
                     raw_index, raw_object_id = tar_info.name.split("/", 1)
+                    if not 0 <= int(raw_index) < len(custom_invalidation):
+                        raise PypelineException("Invalid custom invalidation argument index")
                     custom_invalidation[int(raw_index)].append(
                         (
                             object_id_type.deserialize(f"/{raw_object_id}"),

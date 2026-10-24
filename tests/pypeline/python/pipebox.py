@@ -308,6 +308,10 @@ class DictModel(Model):
         return result
 
     def children(self, obj: ObjectID, kind: Kind) -> set[ObjectID]:
+        if obj.kind() == MyKind.ROOT and kind == MyKind.CHILD and "/parallel/count" in self:
+            return {
+                MyObjectID(MyKind.CHILD, f"f{i:03}") for i in range(int(self["/parallel/count"]))
+            }
         if obj.kind() == MyKind.ROOT:
             if kind == MyKind.CHILD:
                 return {

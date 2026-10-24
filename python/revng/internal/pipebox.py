@@ -39,6 +39,10 @@ def _collect_native_pipes_and_analyses():
 
 _collect_native_pipes_and_analyses()
 
+if "emit-c" in _native_pipes:
+    _native_pipes["emit-c"].parallel_output = "Output"
+    _native_pipes["emit-c"].parallel_inputs = ("Modules",)
+
 
 def initialize(argv: list[str] = []):
     _module.initialize(
@@ -78,6 +82,18 @@ def argv_hook(input_: list[str]):
             return ["revng", *input_[1:]]
         else:
             return ["revng", "pipeline", "run-analysis-native", *input_[3:]]
+
+
+def parallel_argv_hook(command: list[str]):
+    if command[:3] == ["pype", "pipeline", "run-pipe"] and command[3] in _native_pipes:
+        from revng.pypeline.parallel_runner import native_pipe_command
+
+        return native_pipe_command(
+            command,
+            get_root() / "libexec/revng/pypeline-run-pipe",
+            [path.resolve() for path in _native_libraries],
+        )
+    return argv_hook(command)
 
 
 class ImportFiles(Pipe):

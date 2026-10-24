@@ -8,6 +8,12 @@ revng_add_test(
 set_tests_properties(test_sqlite_invalidation PROPERTIES LABELS "pypeline")
 
 revng_add_test(
+  NAME test_parallel_runner COMMAND "${Python3_EXECUTABLE}" -m pytest
+  -p no:cacheprovider -q "${CMAKE_CURRENT_SOURCE_DIR}/test_parallel_runner.py")
+set_tests_properties(test_parallel_runner PROPERTIES LABELS "pypeline"
+  ENVIRONMENT "PYTHONPATH=${CMAKE_BINARY_DIR}/${PYTHON_INSTALL_PATH}:$ENV{PYTHONPATH}")
+
+revng_add_test(
   NAME
   test_pypeline
   COMMAND

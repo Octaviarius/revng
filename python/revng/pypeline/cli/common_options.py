@@ -3,7 +3,9 @@
 #
 
 from enum import Enum
+from functools import wraps
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Generator, cast
 
 import click
@@ -135,7 +137,7 @@ def _parse_debug_option(path: str, ctx: ClickContext):
     return RunnerContext(True, ctx.obj.pipebox.argv_hook, Path(path))
 
 
-debug_option = click.option(
+_debug_option = click.option(
     "--debug",
     "runner_context",
     type=EagerParsedPath(
@@ -157,6 +159,96 @@ debug_option = click.option(
     default=EagerParsedPath.DEFAULT,
     show_default=False,
 )
+
+
+def debug_option(func):
+    @wraps(func)
+    def invoke(*args, **kwargs):
+        workers = kwargs.pop("parallel_workers")
+        batch_size = kwargs.pop("parallel_batch_size")
+        timeout = kwargs.pop("parallel_timeout")
+        minimum = kwargs.pop("parallel_min_functions")
+        per_worker = kwargs.pop("parallel_min_per_worker")
+        ctx = click.get_current_context()
+        if getattr(ctx.obj, "storage_provider_url", "local://").startswith("daemon://"):
+            if workers is not None and workers > 1:
+                raise click.UsageError(
+                    "--cores controls local computation; configure the daemon separately"
+                )
+            return func(*args, **kwargs)
+        from revng.pypeline.parallel_runner import ParallelRunnerContext, available_cpus
+
+        workers = min(workers or available_cpus(), available_cpus())
+        if workers == 1:
+            return func(*args, **kwargs)
+
+        original = kwargs["runner_context"]
+
+        def argv_hook(command):
+            hook = getattr(
+                ctx.obj.pipebox, "parallel_argv_hook", getattr(ctx.obj.pipebox, "argv_hook", None)
+            )
+            command = hook(command) if hook is not None else command
+            native = Path(command[0]).name == "pypeline-run-pipe"
+            if not native:
+                command = [
+                    command[0],
+                    "--pipebox",
+                    str(ctx.obj.pipebox_path.resolve()),
+                    *command[1:],
+                ]
+            native_args = list(ctx.obj.pipebox_args)
+            for i, argument in enumerate(native_args):
+                if argument.startswith("--trace="):
+                    native_args[i] = "--trace=worker.trace.json"
+                elif argument == "--trace" and i + 1 < len(native_args):
+                    native_args[i + 1] = "worker.trace.json"
+            return [*command, *([] if native else ["--"]), *native_args] if native_args else command
+
+        with TemporaryDirectory(prefix="revng-parallel-") as temporary:
+            directory = original.base_directory if original.use_system else Path(temporary)
+            kwargs["runner_context"] = ParallelRunnerContext(
+                directory, argv_hook, workers, batch_size, timeout, minimum, per_worker, original
+            )
+            return func(*args, **kwargs)
+
+    invoke = click.option(
+        "--cores",
+        "--parallel-workers",
+        "parallel_workers",
+        type=click.IntRange(1),
+        default=None,
+        help="Maximum function workers; default: all CPUs available to this process.",
+    )(invoke)
+    invoke = click.option(
+        "--parallel-batch-size",
+        type=click.IntRange(1),
+        default=256,
+        show_default=True,
+        help="Function requests per worker batch.",
+    )(invoke)
+    invoke = click.option(
+        "--parallel-timeout",
+        type=click.FloatRange(min=0, min_open=True),
+        default=600,
+        show_default=True,
+        help="Timeout per worker batch, seconds.",
+    )(invoke)
+    invoke = click.option(
+        "--parallel-min-functions",
+        type=click.IntRange(0),
+        default=1024,
+        show_default=True,
+        help="Keep smaller requests serial.",
+    )(invoke)
+    invoke = click.option(
+        "--parallel-min-per-worker",
+        type=click.IntRange(1),
+        default=256,
+        show_default=True,
+        help="Minimum functions per active process.",
+    )(invoke)
+    return _debug_option(invoke)
 
 
 def _show_full_help(ctx: ClickContext, param, value: bool):

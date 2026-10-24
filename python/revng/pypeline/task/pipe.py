@@ -56,6 +56,8 @@ class Pipe(ABC):
     """
 
     name: str
+    parallel_output: str | None = None
+    parallel_inputs: tuple[str, ...] = ()
 
     @classmethod
     @abstractmethod
