@@ -195,6 +195,69 @@ def test_savepoint_prerequisites_for(storage_provider) -> None:
     assert result == expected
 
 
+@pytest.mark.parametrize("compressed", [False, True])
+def test_savepoint_batches_keep_identical_objects(storage_provider, compressed):
+    import zlib
+    from types import SimpleNamespace
+    declaration = ContainerDeclaration("bounded", ChildDictContainer)
+    container = ChildDictContainer()
+    codec = SimpleNamespace(compress=lambda data:zlib.compress(bytes(data)),
+                            decompress=lambda data:zlib.decompress(bytes(data))) if compressed else None
+    container.get_compression = lambda:codec
+    for i in range(385):
+        container.add_object(MyObjectID(MyKind.CHILD, f"o{i:04}"))
+    objects = container.objects()
+    expected = container.serialize(objects)
+    calls = []
+    original = container.serialize
+    def bounded(requested):
+        calls.append(len(requested))
+        assert len(requested) <= 128
+        return original(requested)
+    container.serialize = bounded
+    requests = Requests({declaration: objects})
+    savepoint = SavePoint("bounded", [declaration])
+    common = dict(configuration_id="", storage_provider=storage_provider,
+                  savepoint_range=SavePointsRange(start=1, end=1), pipes_dependencies=[])
+    savepoint.run(containers={declaration:container}, incoming=requests,
+                  outgoing=requests, **common)
+    restored = ChildDictContainer()
+    restored.get_compression = lambda:codec
+    savepoint.run(containers={declaration:restored}, incoming=Requests(),
+                  outgoing=requests, **common)
+    assert restored.serialize() == expected
+    assert len(calls) == 4
+
+
+def test_sqlite_savepoint_serialization_failure_rolls_back(tmp_path):
+    declaration = ContainerDeclaration("bounded", ChildDictContainer)
+    container = ChildDictContainer()
+    for i in range(256):
+        container.add_object(MyObjectID(MyKind.CHILD, f"o{i:04}"))
+    objects = container.objects()
+    original = container.serialize
+    calls = 0
+    def fail_second_batch(requested):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("serialization failed")
+        return original(requested)
+    container.serialize = fail_second_batch
+    model_path = tmp_path / "model.yml"
+    model_path.write_text("{}")
+    provider = LocalStorageProvider(":memory:", model_path, tmp_path, "")
+    provider.set_model(DictModel(), set(), [])
+    requests = Requests({declaration:objects})
+    with pytest.raises(RuntimeError, match="serialization failed"):
+        SavePoint("bounded", [declaration]).run(
+            containers={declaration:container}, incoming=requests, outgoing=requests,
+            configuration_id="", storage_provider=provider,
+            savepoint_range=SavePointsRange(start=1,end=1), pipes_dependencies=[])
+    location = ContainerLocation(savepoint_id=1,container_id="bounded",configuration_id="")
+    assert not provider.has(location,objects)
+
+
 def test_pipeline_inplace(model, storage_provider):
     child_cont: ContainerDeclaration = ContainerDeclaration("arg", ChildDictContainer)
     declarations = [child_cont]
