@@ -819,6 +819,7 @@ private:
   mlir::Value emitImplicitBitcast(mlir::Location Loc,
                                   mlir::Value Value,
                                   mlir::Type TargetType) {
+    TargetType = clift::removeConst(TargetType);
     mlir::Type SourceType = Value.getType();
 
     if (SourceType == TargetType)
