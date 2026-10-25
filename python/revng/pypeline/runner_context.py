@@ -5,6 +5,7 @@
 import shlex
 import subprocess
 import tarfile
+from itertools import batched
 from collections.abc import Buffer
 from pathlib import Path
 from typing import Callable
@@ -17,6 +18,7 @@ from revng.pypeline.model import Model, ModelPath, ReadOnlyModel
 from revng.pypeline.object import ObjectID, ObjectSet
 from revng.pypeline.storage.file_provider import FileProvider
 from revng.pypeline.task.pipe import Pipe, PipeDependencies
+from revng.pypeline.dependency_groups import pack_dependencies
 from revng.pypeline.task.task import TaskArgumentAccess
 from revng.pypeline.utils import PypelineException
 from revng.pypeline.utils.logger import pypeline_logger
@@ -251,6 +253,10 @@ exec \\
             return self._pipe_load_results(temp_dir_path, pipe, containers)
         else:
             model.enable_caching()
+            if pipe.serial_batch_size:
+                return self._run_bounded_pipe(
+                    pipe, file_provider, model, containers, incoming, outgoing, configuration
+                )
             return pipe.run(
                 file_provider=file_provider,
                 model=model,
@@ -259,6 +265,43 @@ exec \\
                 outgoing=outgoing,
                 configuration=configuration,
             )
+
+    def _run_bounded_pipe(
+        self, pipe, file_provider, model, containers, incoming, outgoing, configuration
+    ):
+        signature = pipe.signature()
+        if (
+            len(signature) != 1
+            or signature[0].access != TaskArgumentAccess.READ_WRITE
+            or signature[0].container_type.kind.rank() != 1
+            or pipe.serial_batch_size < 1
+        ):
+            raise PypelineException("Bounded serial pipe requires one in-place function argument")
+        requested = outgoing[0]
+        custom = []
+        total = len(requested)
+        completed = 0
+        for chunk in batched(sorted(requested, key=lambda obj: obj.serialize()), pipe.serial_batch_size):
+            batch = ObjectSet(requested.kind, set(chunk))
+            result = pipe.run(
+                file_provider=file_provider,
+                model=model,
+                containers=containers,
+                incoming=[incoming[0] & batch],
+                outgoing=[batch],
+                configuration=configuration,
+            )
+            if any(result.custom_invalidation):
+                raise PypelineException("Bounded serial pipe cannot replace custom invalidation")
+            for index, entries in enumerate(result.dependencies):
+                if index != 0:
+                    raise PypelineException("Dependency outside bounded batch ownership")
+                custom.extend(pack_dependencies(entries, chunk))
+                del entries
+            del result
+            completed += len(chunk)
+            pypeline_logger.log(f"Bounded serial {pipe.name}: {completed}/{total} functions")
+        return PipeDependencies([[]], [custom])
 
     def run_analysis(
         self,

@@ -6,6 +6,8 @@ from collections.abc import Buffer, Sequence
 from dataclasses import dataclass, field
 from typing import Annotated, Optional, final
 
+from revng.pypeline.dependency_groups import invalidate_dependencies
+
 from revng.pypeline.container import Configuration, Container, ContainerID
 from revng.pypeline.model import ModelDiff, ModelPath, ReadOnlyModel
 from revng.pypeline.object import ObjectID, ObjectSet
@@ -65,6 +67,7 @@ class Pipe(ABC):
     parallel_min_workers: int = 1
     parallel_configurations: tuple[tuple[str, ...], ...] = ()
     parallel_invalidate_on_model_change: bool = False
+    serial_batch_size: int = 0
 
     @classmethod
     @abstractmethod
@@ -184,7 +187,7 @@ class Pipe(ABC):
         Given a diff, report if the `invalidate` method should be called with
         the invalidation data to compute additional objects to invalidate.
         """
-        return self.parallel_invalidate_on_model_change and len(diff) > 0
+        return (self.parallel_invalidate_on_model_change or bool(self.serial_batch_size)) and len(diff) > 0
 
     def process_custom_invalidation(
         self, invalidation_data: PipeCustomInvalidation, diff: ModelDiff
@@ -195,7 +198,15 @@ class Pipe(ABC):
         and the opaque invalidation data returned by a previous execution of the
         pipe's run method.
         """
-        if not self.parallel_invalidate_on_model_change or not diff:
+        if not diff:
+            return []
+        if self.serial_batch_size:
+            changed = diff.paths()
+            return [
+                ObjectSet(argument.container_type.kind, invalidate_dependencies(entries, changed))
+                for argument, entries in zip(self.signature(), invalidation_data, strict=True)
+            ]
+        if not self.parallel_invalidate_on_model_change:
             return []
         return [
             ObjectSet(
@@ -212,7 +223,7 @@ class Pipe(ABC):
         ]
 
     def has_custom_invalidation(self):
-        return self.parallel_invalidate_on_model_change or (
+        return bool(self.serial_batch_size) or self.parallel_invalidate_on_model_change or (
             self.__class__.requires_custom_invalidation is not Pipe.requires_custom_invalidation
             and self.__class__.process_custom_invalidation is not Pipe.process_custom_invalidation
         )

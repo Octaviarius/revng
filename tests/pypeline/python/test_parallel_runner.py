@@ -430,7 +430,8 @@ def test_native_opt_in_is_narrow():
     assert not hasattr(pipes["lift"], "parallel_output")
 
 
-def test_in_place_cache_restores_original_input_after_model_edit(tmp_path):
+@pytest.mark.parametrize("bounded", [False, True])
+def test_in_place_cache_restores_original_input_after_model_edit(tmp_path, bounded):
     import subprocess
     from parallel_pipebox import ValueFunctionContainer
     from revng.pypeline.parallel_runner import available_cpus
@@ -438,8 +439,7 @@ def test_in_place_cache_restores_original_input_after_model_edit(tmp_path):
     if available_cpus() < 2:
         pytest.skip("Needs two available CPUs")
     pipeline = tmp_path / "pipeline.yml"
-    pipeline.write_text(
-        """
+    pipeline_text = """
 artifact-categories:
   - {name: main, show-by-default: true}
 containers:
@@ -455,7 +455,9 @@ branches:
         artifacts:
           - {name: functions, container: values, category: main, filename: functions.tar}
 """
-    )
+    if bounded:
+        pipeline_text = pipeline_text.replace("pipe: InPlaceFixturePipe", "pipe: BoundedInPlaceFixturePipe")
+    pipeline.write_text(pipeline_text)
     model = tmp_path / "model.yml"
     model.write_text('"/parallel/count": 7\n')
     outputs = []
@@ -486,7 +488,8 @@ branches:
         )
         result = subprocess.run(command, cwd=tmp_path, text=True, capture_output=True, timeout=90)
         assert result.returncode == 0, result.stderr
-        assert ("Parallel InPlaceFixturePipe" in result.stderr) == (index != 1)
+        marker = "Bounded serial BoundedInPlaceFixturePipe" if bounded else "Parallel InPlaceFixturePipe"
+        assert (marker in result.stderr) == (index != 1)
         container = ValueFunctionContainer.from_file(output)
         outputs.append(container.serialize())
     assert outputs[0] == outputs[1]
@@ -558,3 +561,24 @@ def test_whole_model_policy_skips_unused_dependency_yaml(tmp_path):
     assert not any(result.custom_invalidation)
     with pytest.raises(Exception):
         RunnerContext()._pipe_load_results(tmp_path, ConservativeFixturePipe(), args["containers"])
+
+
+def test_compact_dependencies_share_common_paths_and_keep_exact_invalidation():
+    from revng.pypeline.dependency_groups import pack_dependencies, unpack_dependencies
+    from revng.pypeline.dependency_groups import invalidate_dependencies
+
+    objects = [MyObjectID(MyKind.CHILD, f"f{i:03}") for i in range(3)]
+    common = {f"/shared/{i}" for i in range(1000)}
+    expected = {obj: common | {f"/own/{i}"} for i, obj in enumerate(objects)}
+    entries = [(obj, path) for obj, paths in expected.items() for path in paths]
+    packed = pack_dependencies(entries, objects)
+    assert all(data.common is packed[0][1].common for _, data in packed)
+    assert memoryview(packed[0][1]).tobytes() == bytes(packed[0][1])
+    persisted = [(obj, bytes(data)) for obj, data in packed]
+    assert {obj: unpack_dependencies(data) for obj, data in persisted} == expected
+    for changed in ({"/shared/9"}, {"/own/1"}, {"/unrelated"}, set()):
+        assert invalidate_dependencies(persisted, changed) == {
+            obj for obj, paths in expected.items() if not paths.isdisjoint(changed)
+        }
+    with pytest.raises(PypelineException):
+        pack_dependencies([(MyObjectID(MyKind.CHILD, "other"), "/bad")], objects)

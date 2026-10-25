@@ -142,6 +142,20 @@ class InPlaceFixturePipe(Pipe):
         return PipeDependencies([[(obj, "/parallel/count") for obj in outgoing[0]]])
 
 
+class BoundedInPlaceFixturePipe(Pipe):
+    name = "BoundedInPlaceFixturePipe"
+    serial_batch_size = 3
+
+    def run(self, **kwargs):
+        result = InPlaceFixturePipe.run(self, **kwargs)
+        result.dependencies[0].extend((obj, "/unrelated/field") for obj in kwargs["outgoing"][0])
+        return result
+
+    @classmethod
+    def signature(cls):
+        return InPlaceFixturePipe.signature()
+
+
 class ValueSeedPipe(Pipe):
     name = "ValueSeedPipe"
 

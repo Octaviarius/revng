@@ -61,3 +61,6 @@ def configure_native_parallel_pipes(pipes, *, experimental_llvm=False):
     if "clifter" in pipes:
         pipes["clifter"].parallel_min_batch_size = 1024
         pipes["clifter"].parallel_min_workers = 4
+
+    if "import-descriptive-function-info" in pipes:
+        pipes["import-descriptive-function-info"].serial_batch_size = 64
