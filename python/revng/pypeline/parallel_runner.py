@@ -3,6 +3,7 @@
 #
 
 import math
+import hashlib
 import os
 import signal
 import subprocess
@@ -119,6 +120,11 @@ class ParallelRunnerContext(RunnerContext):
     def _worker(self, directory, command, cancelled):
         if cancelled.is_set():
             raise PypelineException("Parallel run cancelled")
+        resume = os.environ.get("REVNG_PARALLEL_RESUME_DIR")
+        if resume and self._reuse_batch(Path(resume) / directory.parent.name / directory.name,
+                                       directory):
+            pypeline_logger.log(f"Reused completed parallel batch: {directory.name}")
+            return
         command = self._prepare_command(directory, command)
         with (directory / "worker.log").open("wb") as log:
             process = subprocess.Popen(
@@ -142,6 +148,40 @@ class ParallelRunnerContext(RunnerContext):
                     )
             finally:
                 self._stop(process)
+
+    @staticmethod
+    def _reuse_batch(saved, directory):
+        if not (saved / "worker.log").is_file():
+            return False
+        with (saved / "worker.log").open("rb") as log:
+            log.seek(0, 2)
+            log.seek(max(0, log.tell() - 4096))
+            if b"Ending Running clifter" not in log.read():
+                return False
+        if not directory.parent.name.endswith("-clifter"):
+            return False
+
+        def inputs(path):
+            names = {f.relative_to(path) for folder in ("inputs", "files")
+                     for f in (path / folder).rglob("*") if f.is_file()}
+            names.update(f.relative_to(path) for f in path.glob("*.yml"))
+            return names
+
+        def digest(path):
+            with path.open("rb") as stream:
+                return hashlib.file_digest(stream, "sha256").digest()
+
+        names = inputs(directory)
+        if names != inputs(saved) or any(digest(directory / n) != digest(saved / n)
+                                         for n in names):
+            return False
+        artifacts = [Path("dependencies.tar"), *[f.relative_to(saved)
+                     for f in (saved / "outputs").glob("*.tar")]]
+        if len(artifacts) < 2 or not all((saved / n).is_file() for n in artifacts):
+            return False
+        for name in artifacts:
+            os.link(saved / name, directory / name)
+        return True
 
     @staticmethod
     def _link_inputs(shared, directory, sliced_names):
@@ -244,6 +284,8 @@ class ParallelRunnerContext(RunnerContext):
         custom = [[] for _ in pipe.signature()]
         seen = set()
         for path, expected, _ in batches:
+            pypeline_logger.log(f"Loading parallel batch: {path.name}")
+            merge_started = time.monotonic()
             argument = pipe.signature()[output_index]
             archive = path / "outputs" / f"{normalize_flag(argument.name)}.tar"
             with tarfile.open(archive) as tar:
@@ -251,7 +293,10 @@ class ParallelRunnerContext(RunnerContext):
                 if len(names) != len(set(names)) or len(names) != len(expected):
                     raise PypelineException(f"Duplicate output archive member: {path}")
             result_containers = list(containers)
-            result = self._pipe_load_results(path, pipe, result_containers)
+            result = self._pipe_load_results(
+                path, pipe, result_containers,
+                skip_model_dependencies=pipe.parallel_invalidate_on_model_change,
+            )
             output = result_containers[output_index]
             if not output.verify() or set(output.objects()) != set(expected):
                 raise PypelineException(f"Incorrect parallel output objects: {path}")
@@ -260,6 +305,10 @@ class ParallelRunnerContext(RunnerContext):
                 raise PypelineException("Duplicate parallel output ownership")
             seen.update(serialized)
             merged[output_index].deserialize(serialized)
+            pypeline_logger.log(
+                f"Merged parallel batch: {path.name}, {len(expected)} functions, "
+                f"{time.monotonic() - merge_started:.1f}s"
+            )
             for index, entries in enumerate(result.dependencies):
                 for obj, model_path in entries:
                     if index != output_index or obj not in expected:

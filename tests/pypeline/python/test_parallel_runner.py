@@ -514,3 +514,47 @@ def test_pipe_specific_batch_and_worker_thresholds(tmp_path):
     context.run_pipe(**args)
     assert context.last_metrics["batches"] == 2
     assert context.last_metrics["workers"] == 2
+
+
+def test_reuse_completed_clifter_batch_requires_identical_inputs(tmp_path):
+    saved = tmp_path / "saved"
+    current = tmp_path / "0000-clifter" / "batch-00000"
+    for path in (saved, current):
+        (path / "inputs").mkdir(parents=True)
+        (path / "outputs").mkdir()
+        (path / "files").mkdir()
+        (path / "revng.yml").write_bytes(b"model")
+        (path / "inputs/input.tar").write_bytes(b"input")
+    (saved / "worker.log").write_text("Ending Running clifter\n")
+    (saved / "dependencies.tar").write_bytes(b"deps")
+    (saved / "outputs/output.tar").write_bytes(b"result")
+    (current / "revng.yml").write_bytes(b"changed")
+    assert not ParallelRunnerContext._reuse_batch(saved, current)
+    assert not (current / "outputs/output.tar").exists()
+    (current / "revng.yml").write_bytes(b"model")
+    assert ParallelRunnerContext._reuse_batch(saved, current)
+    assert (current / "outputs/output.tar").read_bytes() == b"result"
+
+
+def test_whole_model_policy_skips_unused_dependency_yaml(tmp_path):
+    import io
+    import tarfile
+    from parallel_pipebox import ConservativeFixturePipe
+    from revng.pypeline.container import ContainerFormat
+
+    args = arguments(1)
+    output = args["containers"][2]
+    (tmp_path / "outputs").mkdir()
+    output.to_file(tmp_path / "outputs/destination.tar", container_format=ContainerFormat.TAR)
+    invalid_yaml = b"[not: valid: yaml"
+    with tarfile.open(tmp_path / "dependencies.tar", "w") as tar:
+        info = tarfile.TarInfo("dependencies.yml")
+        info.size = len(invalid_yaml)
+        tar.addfile(info, io.BytesIO(invalid_yaml))
+    result = RunnerContext()._pipe_load_results(
+        tmp_path, ConservativeFixturePipe(), args["containers"], skip_model_dependencies=True
+    )
+    assert not any(result.dependencies)
+    assert not any(result.custom_invalidation)
+    with pytest.raises(Exception):
+        RunnerContext()._pipe_load_results(tmp_path, ConservativeFixturePipe(), args["containers"])

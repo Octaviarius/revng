@@ -187,7 +187,8 @@ exec \\
         return [*cmd, *cmd_epilogue]
 
     def _pipe_load_results(
-        self, directory: Path, pipe: Pipe, containers: list[Container]
+        self, directory: Path, pipe: Pipe, containers: list[Container],
+        skip_model_dependencies: bool = False,
     ) -> PipeDependencies:
         object_id_type = get_singleton(ObjectID)  # type: ignore[type-abstract]
         # Load outputs back into the containers
@@ -202,6 +203,8 @@ exec \\
         custom_invalidation: list[list[tuple[ObjectID, Buffer]]] = [[] for _ in pipe.signature()]
         with tarfile.open(directory / "dependencies.tar", "r") as tar:
             for tar_info in tar:
+                if skip_model_dependencies and tar_info.name == "dependencies.yml":
+                    continue
                 tar_member_file = tar.extractfile(tar_info)
                 assert tar_member_file is not None
 

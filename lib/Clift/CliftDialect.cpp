@@ -97,12 +97,16 @@ public:
   mlir::LogicalResult visitClassType(ClassType Type,
                                      ClassType RootType,
                                      bool CheckRecursion = true) {
+    const auto Key = std::make_pair(Type, RootType);
+    if (VerifiedClassTrees.contains(Key))
+      return mlir::success();
     if (not CheckRecursion or not equivalent(Type, RootType)) {
       for (FieldAttr Field : Type.getFields()) {
         if (visitFieldType(Field.getType(), RootType).failed())
           return mlir::failure();
       }
     }
+    VerifiedClassTrees.insert(Key);
     return mlir::success();
   }
 
@@ -194,6 +198,7 @@ public:
   }
 
 private:
+  llvm::DenseSet<std::pair<ClassType, ClassType>> VerifiedClassTrees;
   llvm::DenseMap<llvm::StringRef, DefinedType> Definitions;
   llvm::DenseSet<ClassType> ClassTypes;
 };
